@@ -8,6 +8,17 @@ export const whatsNew = {
     help: "TaskTrooper'ın son sürümünde nelerin değiştiğini gör.",
     open: "Yenilikleri göster",
   },
+  v0_3_16: {
+    title: "İşten önce audience testi, karşılaştıran tekrar çalıştırmalar, eksiksiz görevler",
+    items: {
+      studyRerun: "Ürünü değiştirdikten sonra biten bir çalışmayı tekrar çalıştır ve neyin değiştiğini gör: karar puanı, kaybolan ya da yeni çıkan itirazlar ve her kişinin değişimi.",
+      pmAudienceTest: "Bir isteğin başarısı insanların tepkisine bağlıysa (fiyat, ücretli özellik, metin, onboarding) PM işi açmadan önce audience testi öneriyor, planı değiştirip yeniden test etmene izin veriyor ve sen deyince görevleri açıyor.",
+      serialReleases: "Sürümler her bileşen için sırayla çıkıyor; aynı servisin iki dağıtımı artık çakışmıyor.",
+      completeTasks: "Ajanların açtığı görevler her zaman açıklama, kabul kriterleri ve bir atanan içeriyor; boş ya da atanmamış görev reddediliyor ve ajan düzeltiyor.",
+      chatThinking: "Ajan çalışırken düşünmesi önce yanıt gibi görünmek yerine doğrudan düşünme adımlarına akıyor; sistem mimarı teknik soruları koda bakarak yanıtlıyor.",
+      mascot: "Yeni maskot Trooper boş ekranlarda, kurulumda ve ajan avatarlarında.",
+    },
+  },
   v0_3_15: {
     title: "Ajanlar doğru rehberi, görevler bir ajanı, Docker komutları buluyor",
     items: {

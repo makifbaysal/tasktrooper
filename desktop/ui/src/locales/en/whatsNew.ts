@@ -10,6 +10,17 @@ export const whatsNew = {
     help: "See what changed in the latest version of TaskTrooper.",
     open: "Show what's new",
   },
+  v0_3_16: {
+    title: "Audience tests before the work, re-runs that compare, complete tasks",
+    items: {
+      studyRerun: "Run a finished study again after you change the product and see what moved: the verdict score, objections that went away or appeared, and each person's change.",
+      pmAudienceTest: "When a request depends on how people react (a price, a paid feature, copy, onboarding), the PM offers an audience test before opening the work, lets you revise and re-test, and opens the tasks when you say so.",
+      serialReleases: "Releases ship one at a time per component, so two deploys of the same service never overlap.",
+      completeTasks: "Tasks agents open always carry their description, acceptance criteria and an assignee; an empty or unassigned task is refused and fixed by the agent.",
+      chatThinking: "While an agent works, its thinking streams into the thinking steps instead of appearing as a reply first; the system architect answers technical questions from the code.",
+      mascot: "Trooper, the new mascot, shows up in empty states, setup and agent avatars.",
+    },
+  },
   v0_3_15: {
     title: "Agents get the right guide, tasks get an agent, Docker gets commands",
     items: {

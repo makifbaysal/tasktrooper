@@ -8,6 +8,17 @@ export const whatsNew = {
     help: "Sieh nach, was sich in der neuesten Version von TaskTrooper geändert hat.",
     open: "Neuigkeiten anzeigen",
   },
+  v0_3_16: {
+    title: "Zielgruppentests vor der Arbeit, vergleichende Wiederholungen, vollständige Aufgaben",
+    items: {
+      studyRerun: "Führe eine abgeschlossene Studie nach einer Produktänderung erneut aus und sieh, was sich bewegt hat: Gesamtwertung, verschwundene oder neue Einwände und die Veränderung jeder Person.",
+      pmAudienceTest: "Hängt eine Anfrage davon ab, wie Menschen reagieren (Preis, kostenpflichtige Funktion, Texte, Onboarding), bietet der PM vor dem Anlegen der Arbeit einen Zielgruppentest an, lässt dich überarbeiten und neu testen und legt die Aufgaben an, wenn du es sagst.",
+      serialReleases: "Releases laufen pro Komponente nacheinander, sodass sich zwei Deployments desselben Dienstes nie überschneiden.",
+      completeTasks: "Von Agenten angelegte Aufgaben haben immer Beschreibung, Akzeptanzkriterien und eine zuständige Person; leere oder nicht zugewiesene Aufgaben werden abgelehnt und vom Agenten korrigiert.",
+      chatThinking: "Während ein Agent arbeitet, fließt sein Denken direkt in die Denkschritte statt zuerst als Antwort zu erscheinen; der Systemarchitekt beantwortet technische Fragen anhand des Codes.",
+      mascot: "Trooper, das neue Maskottchen, erscheint in leeren Ansichten, bei der Einrichtung und in Agenten-Avataren.",
+    },
+  },
   v0_3_15: {
     title: "Agenten bekommen den richtigen Leitfaden, Aufgaben einen Agenten, Docker Befehle",
     items: {

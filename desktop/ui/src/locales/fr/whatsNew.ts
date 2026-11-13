@@ -8,6 +8,17 @@ export const whatsNew = {
     help: "Découvrez ce qui a changé dans la dernière version de TaskTrooper.",
     open: "Afficher les nouveautés",
   },
+  v0_3_16: {
+    title: "Tests d'audience avant le travail, relances comparées, tâches complètes",
+    items: {
+      studyRerun: "Relancez une étude terminée après avoir modifié le produit et voyez ce qui a bougé : le score du verdict, les objections disparues ou apparues et l'évolution de chaque personne.",
+      pmAudienceTest: "Quand une demande dépend de la réaction des gens (un prix, une fonction payante, des textes, l'onboarding), le PM propose un test d'audience avant d'ouvrir le travail, vous laisse réviser et retester, puis ouvre les tâches quand vous le dites.",
+      serialReleases: "Les versions sont livrées une à la fois par composant, donc deux déploiements du même service ne se chevauchent plus.",
+      completeTasks: "Les tâches ouvertes par les agents ont toujours une description, des critères d'acceptation et un responsable ; une tâche vide ou non assignée est refusée et corrigée par l'agent.",
+      chatThinking: "Pendant qu'un agent travaille, sa réflexion s'affiche directement dans les étapes de réflexion au lieu d'apparaître d'abord comme une réponse ; l'architecte système répond aux questions techniques à partir du code.",
+      mascot: "Trooper, la nouvelle mascotte, apparaît dans les écrans vides, la configuration et les avatars des agents.",
+    },
+  },
   v0_3_15: {
     title: "Les agents ont le bon guide, les tâches un agent et Docker ses commandes",
     items: {

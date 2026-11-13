@@ -8,6 +8,17 @@ export const whatsNew = {
     help: "Veja o que mudou na versão mais recente do TaskTrooper.",
     open: "Mostrar novidades",
   },
+  v0_3_16: {
+    title: "Testes com audiência antes do trabalho, novas execuções que comparam, tarefas completas",
+    items: {
+      studyRerun: "Execute de novo um estudo concluído depois de mudar o produto e veja o que mudou: a pontuação do veredito, as objeções que sumiram ou surgiram e a mudança de cada pessoa.",
+      pmAudienceTest: "Quando um pedido depende de como as pessoas reagem (um preço, um recurso pago, textos, onboarding), o PM oferece um teste com audiência antes de abrir o trabalho, deixa você revisar e testar de novo e abre as tarefas quando você pedir.",
+      serialReleases: "As versões saem uma de cada vez por componente, então dois deploys do mesmo serviço nunca se sobrepõem.",
+      completeTasks: "As tarefas abertas pelos agentes sempre têm descrição, critérios de aceitação e um responsável; uma tarefa vazia ou sem responsável é recusada e corrigida pelo agente.",
+      chatThinking: "Enquanto um agente trabalha, o raciocínio vai direto para as etapas de raciocínio em vez de aparecer primeiro como resposta; o arquiteto de sistemas responde perguntas técnicas a partir do código.",
+      mascot: "Trooper, o novo mascote, aparece em telas vazias, na configuração e nos avatares dos agentes.",
+    },
+  },
   v0_3_15: {
     title: "Agentes com o guia certo, tarefas com um agente e comandos Docker",
     items: {
