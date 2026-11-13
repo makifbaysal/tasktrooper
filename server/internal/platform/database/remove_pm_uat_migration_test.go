@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -39,13 +38,9 @@ func TestRemovePMUATMigrationSuite(t *testing.T) {
 
 func (s *RemovePMUATMigrationSuite) SetupSuite() {
 	s.ctx, s.cancel = context.WithTimeout(context.Background(), 5*time.Minute)
-	tmp := s.T().TempDir()
-	pg, err := database.StartEmbedded(s.ctx, database.EmbeddedConfig{
-		DataDir:     filepath.Join(tmp, "postgres"),
-		RuntimePath: filepath.Join(tmp, "runtime"),
-	})
-	s.Require().NoError(err)
+	pg := sharedPostgres(s.T())
 	s.pg = pg
+	var err error
 	s.boot, err = pgxpool.New(s.ctx, pg.DSN())
 	s.Require().NoError(err)
 }
@@ -53,9 +48,6 @@ func (s *RemovePMUATMigrationSuite) SetupSuite() {
 func (s *RemovePMUATMigrationSuite) TearDownSuite() {
 	if s.boot != nil {
 		s.boot.Close()
-	}
-	if s.pg != nil {
-		_ = s.pg.Stop()
 	}
 	if s.cancel != nil {
 		s.cancel()

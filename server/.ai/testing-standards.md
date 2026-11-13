@@ -36,9 +36,14 @@ interface never forces hand-maintenance of a mock. The wiring:
 - A store method whose correctness depends on a CTE's snapshot semantics can
   only be verified against the real engine; write that against Postgres and
   keep the rest at the Go level.
-- Database-backed suites: `SetupSuite`/`TearDownSuite` start/stop one embedded
-  cluster (`platform/database.StartEmbedded`); guard with
-  `if testing.Short() { t.Skip(...) }`.
+- Database-backed suites share one embedded cluster per test binary, started
+  on first use and stopped in `TestMain`: `newTestDatabase` in
+  `adapter/storage/postgres` (a migrated clone per suite) and `sharedPostgres`
+  in `platform/database` (migration suites create, name and drop their own
+  empty databases on it). Never `StartEmbedded` per suite: an initdb, a server
+  start and the whole migration history cost ~10 s each time. Keep databases
+  and roles rerunnable (`DROP DATABASE IF EXISTS`, create-if-missing) so
+  `-count=N` works. Guard with `if testing.Short() { t.Skip(...) }`.
 - Tests that only need a seam (a store a service persists through, a tool a loop
   executes) use mockery mocks with expectations; use a small stateful fake only
   when a test's behavior genuinely depends on accumulated state across calls.

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,16 +51,14 @@ func TestDropTenancySuite(t *testing.T) {
 
 func (s *DropTenancySuite) SetupSuite() {
 	s.ctx, s.cancel = context.WithTimeout(context.Background(), 10*time.Minute)
-	tmp := s.T().TempDir()
-	pg, err := database.StartEmbedded(s.ctx, database.EmbeddedConfig{
-		DataDir:     filepath.Join(tmp, "postgres"),
-		RuntimePath: filepath.Join(tmp, "runtime"),
-	})
-	s.Require().NoError(err)
+	pg := sharedPostgres(s.T())
 	s.pg = pg
 	s.boot = s.connect(pg.DSN())
-	s.exec(s.boot, `CREATE ROLE `+appRole+` LOGIN PASSWORD '`+appRolePassword+`' `+
-		`NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`)
+	// The cluster is shared with the other suites and outlives a -count=N
+	// iteration, so the role may already be there.
+	s.exec(s.boot, `DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '`+appRole+`') THEN `+
+		`CREATE ROLE `+appRole+` LOGIN PASSWORD '`+appRolePassword+`' `+
+		`NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT; END IF; END $$`)
 
 	admin, runner := s.database("fresh_owner", true)
 	s.Require().NoError(database.RunMigrations(s.ctx, runner),
@@ -72,9 +69,6 @@ func (s *DropTenancySuite) SetupSuite() {
 func (s *DropTenancySuite) TearDownSuite() {
 	for _, p := range s.pools {
 		p.Close()
-	}
-	if s.pg != nil {
-		_ = s.pg.Stop()
 	}
 	if s.cancel != nil {
 		s.cancel()
@@ -370,6 +364,7 @@ func expectedIndexes(consBefore, before map[string]string) map[string]string {
 // database creates an empty database; as the owner variant it belongs to the
 // unprivileged role, with the extensions a superuser has to install first.
 func (s *DropTenancySuite) database(name string, asOwner bool) (admin, runner *pgxpool.Pool) {
+	s.exec(s.boot, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`)
 	create := `CREATE DATABASE ` + name
 	if asOwner {
 		create += ` OWNER ` + appRole
