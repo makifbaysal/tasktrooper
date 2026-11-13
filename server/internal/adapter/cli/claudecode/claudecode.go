@@ -416,6 +416,16 @@ type initGuard struct {
 	fault   error
 }
 
+// SetParentCall forwards the sub-agent scope to the wrapped sink. Embedding
+// the sink interface hides every method it does not declare, so without this
+// the guard swallowed the scope and a sub-agent's narration streamed into the
+// chat as if the main agent had written it.
+func (g *initGuard) SetParentCall(callID string) {
+	if ps, ok := g.sink.(core.ParentScoper); ok {
+		ps.SetParentCall(callID)
+	}
+}
+
 func (g *initGuard) OnInit(init sessionInit) {
 	log.Info().
 		Str("task_key", g.label).

@@ -83,22 +83,85 @@ describe("MessageList on a long session", () => {
   });
 });
 
-describe("MessageList streaming reply", () => {
-  it("shows every chunk as it arrives and nothing of it once the reply has landed", () => {
+describe("MessageList streaming turn", () => {
+  const within = (testId: string) => screen.getByTestId(testId);
+
+  it("streams the open stretch into the thinking steps, never into a reply bubble", () => {
+    const { rerender } = render(
+      <I18nProvider>
+        <MessageList messages={messages} isAwaitingResponse streamingContent="Let me check the repo" />
+      </I18nProvider>,
+    );
+    expect(within("reasoning-block")).toHaveTextContent("Reasoning steps (1)");
+    expect(within("reasoning-preview")).toHaveTextContent("Let me check the repo");
+    for (const el of screen.getAllByText("Let me check the repo")) expect(within("reasoning-block")).toContainElement(el);
+
+    rerender(
+      <I18nProvider>
+        <MessageList
+          messages={messages}
+          isAwaitingResponse
+          streamingReasoning={["Let me check the repo"]}
+          streamingContent={"Found it.\nNow reading main.go"}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getAllByTestId("reasoning-block")).toHaveLength(1);
+    expect(within("reasoning-block")).toHaveTextContent("Reasoning steps (2)");
+    expect(within("reasoning-preview")).toHaveTextContent("Now reading main.go");
+
+    fireEvent.click(screen.getByRole("button", { name: /Reasoning steps \(2\)/ }));
+    expect(screen.getByText("Let me check the repo")).toBeInTheDocument();
+    expect(screen.queryByTestId("reasoning-preview")).toBeNull();
+  });
+
+  it("hands the live block's open state to the finished message", () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(
+      <I18nProvider>
+        <MessageList
+          messages={messages}
+          isAwaitingResponse
+          streamingReasoning={["Looked at main.go"]}
+          streamingContent=""
+          reasoningOpen={{ live: true }}
+          onReasoningOpenChange={onToggle}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getByText("Looked at main.go")).toBeInTheDocument();
+    expect(screen.queryByTestId("reasoning-preview")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Reasoning steps \(1\)/ }));
+    expect(onToggle).toHaveBeenCalledWith("live", false);
+
+    const landed: SessionMessage[] = [
+      ...messages,
+      { id: "m3", role: "assistant", content: "Final answer", created_at: "2026-09-17T10:02:00Z" },
+    ];
+    rerender(
+      <I18nProvider>
+        <MessageList
+          messages={landed}
+          streamingContent={null}
+          reasoningByMessageId={{ m3: ["Looked at main.go"] }}
+          reasoningOpen={{ m3: true }}
+          onReasoningOpenChange={onToggle}
+        />
+      </I18nProvider>,
+    );
+    expect(screen.getAllByTestId("reasoning-block")).toHaveLength(1);
+    expect(screen.getByText("Looked at main.go")).toBeInTheDocument();
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("shows only the typing dots in the reply slot and drops the live turn once the reply lands", () => {
     const { rerender } = render(
       <I18nProvider>
         <MessageList messages={messages} isAwaitingResponse streamingContent="Partial answ" />
       </I18nProvider>,
     );
-    expect(screen.getByText("Partial answ")).toBeInTheDocument();
-
-    rerender(
-      <I18nProvider>
-        <MessageList messages={messages} isAwaitingResponse streamingContent="Partial answer, longer" />
-      </I18nProvider>,
-    );
-    expect(screen.getByText("Partial answer, longer")).toBeInTheDocument();
-    expect(screen.queryByText("Partial answ")).toBeNull();
+    expect(screen.getByTestId("reasoning-preview")).toHaveTextContent("Partial answ");
 
     const landed: SessionMessage[] = [
       ...messages,
@@ -110,6 +173,7 @@ describe("MessageList streaming reply", () => {
       </I18nProvider>,
     );
     expect(screen.getByText("Final answer")).toBeInTheDocument();
-    expect(screen.queryByText("Partial answer, longer")).toBeNull();
+    expect(screen.queryByText("Partial answ")).toBeNull();
+    expect(screen.queryByTestId("reasoning-block")).toBeNull();
   });
 });

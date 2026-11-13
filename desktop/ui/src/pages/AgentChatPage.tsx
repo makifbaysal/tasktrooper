@@ -31,6 +31,7 @@ import { isAbortError } from "@/lib/errors";
 import { loadQueue, mergeQueued, saveQueue, type QueuedMessage } from "@/lib/chatQueue";
 import {
   keepMessages,
+  LIVE_REASONING_KEY,
   mergeServerMessages,
   QUOTA_QUEUED_ERROR_TYPE,
   RATE_LIMIT_ERROR_TYPE,
@@ -118,6 +119,14 @@ export function AgentChatPage() {
   // answer alone, so this is the only place both halves of the turn are known.
   const [streamingReasoning, setStreamingReasoning] = useState<string[]>([]);
   const [reasoningByMessageId, setReasoningByMessageId] = useState<Record<string, string[]>>({});
+  // Lifted here, not left to each block, so the running turn's block hands its
+  // open state to the finished message's block instead of the two disagreeing
+  // the moment the turn lands.
+  const [reasoningOpen, setReasoningOpen] = useState<Record<string, boolean>>({});
+  const toggleReasoning = useCallback(
+    (key: string, open: boolean) => setReasoningOpen((prev) => ({ ...prev, [key]: open })),
+    [],
+  );
   // Cancels the SSE request of the send that is currently in flight.
   const streamAbortRef = useRef<AbortController | null>(null);
   // Set while a user-requested stop is unwinding, so the send's own cleanup
@@ -162,6 +171,7 @@ export function AgentChatPage() {
     setStreamingContent(null);
     setStreamingReasoning([]);
     setReasoningByMessageId({});
+    setReasoningOpen({});
     setInput("");
     setPendingAttachments([]);
     selectedMentionsRef.current = [];
@@ -377,6 +387,7 @@ export function AgentChatPage() {
     setSending(true);
     setStreamingContent(null);
     setStreamingReasoning([]);
+    setReasoningOpen(({ [LIVE_REASONING_KEY]: _, ...rest }) => rest);
     const baselineAssistantCount = countAssistantMessages(messages);
     const optimistic: SessionMessage = {
       id: `temp-${Date.now()}`,
@@ -401,7 +412,7 @@ export function AgentChatPage() {
     const applyProgress = () => {
       progressFrameRef.current = null;
       if (!latestProgress || !stillHere()) return;
-      setStreamingContent(latestProgress.answer);
+      setStreamingContent(latestProgress.pending);
       setStreamingReasoning(latestProgress.reasoning);
       latestProgress = null;
     };
@@ -442,12 +453,16 @@ export function AgentChatPage() {
         const segments = reasoningSoFar;
         setReasoningByMessageId((prev) => ({ ...prev, [answered.id]: segments }));
       }
+      setReasoningOpen(({ [LIVE_REASONING_KEY]: live, ...rest }) =>
+        answered && live ? { ...rest, [answered.id]: true } : rest,
+      );
       // Cleared in the same batch that commits the reply: leaving it for the
       // finally below would show the streaming bubble and the finished message
       // side by side across the await that follows. A frame still pending
       // would paint the partial answer back over it.
       cancelFrame(progressFrameRef);
       setStreamingContent(null);
+      setStreamingReasoning([]);
       logEvent("chat_message_send", { agent_role: agentRole(agent), outcome: "ok" });
       if (result.status === "recovered") {
         toast.info(t("agentArea.chat.toast.recovered"));
@@ -513,7 +528,10 @@ export function AgentChatPage() {
         // answer visible until the reload has the server's persisted copy of it,
         // so the text does not blink out and back in.
         if (stopRequestedRef.current) applyProgress();
-        else setStreamingContent(null);
+        else {
+          setStreamingContent(null);
+          setStreamingReasoning([]);
+        }
         setSending(false);
       }
     }
@@ -563,6 +581,7 @@ export function AgentChatPage() {
         await loadMessages(sessionAtStop);
         await loadSessionActivity();
         setStreamingContent(null);
+        setStreamingReasoning([]);
       }
       stopRequestedRef.current = false;
       setStopping(false);
@@ -686,6 +705,8 @@ export function AgentChatPage() {
                 streamingContent={streamingContent}
                 streamingReasoning={streamingReasoning}
                 reasoningByMessageId={reasoningByMessageId}
+                reasoningOpen={reasoningOpen}
+                onReasoningOpenChange={toggleReasoning}
                 actions={actions}
                 onOpenTask={openActionTask}
                 onSubmitClarification={submitClarification}
