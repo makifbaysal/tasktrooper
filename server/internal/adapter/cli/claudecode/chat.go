@@ -34,8 +34,11 @@ func (e *Executor) ExecuteChat(ctx context.Context, req domain.ChatExecution, ou
 	}
 	defer cleanupMCP()
 
+	images := core.StageImages(req.History)
+	defer images.Cleanup()
+
 	fresh := func() invocation {
-		systemPrompt, prompt := flattenHistory(req.History)
+		systemPrompt, prompt := flattenHistory(images.History)
 		return invocation{
 			workDir: req.WorkDir,
 			systemPrompt: withToolManifest(systemPrompt, mcpCfg.Tools),
@@ -54,7 +57,9 @@ func (e *Executor) ExecuteChat(ctx context.Context, req domain.ChatExecution, ou
 		inv.prompt = strings.TrimSpace(req.Prompt)
 		inv.resumeSessionID = req.ResumeSessionID
 		if inv.prompt == "" {
-			_, inv.prompt = flattenHistory(req.History)
+			_, inv.prompt = flattenHistory(images.History)
+		} else {
+			inv.prompt = core.WithNote(inv.prompt, images.LastUserNote())
 		}
 	}
 

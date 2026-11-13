@@ -277,8 +277,11 @@ func (e *Executor) Execute(ctx context.Context, req domain.TaskExecution) (domai
 			Msg("agent cli: dropped session environment outside the allowlist")
 	}
 
+	images := core.StageImages(req.History)
+	defer images.Cleanup()
+
 	fresh := func() invocation {
-		systemPrompt, prompt := flattenHistory(req.History)
+		systemPrompt, prompt := flattenHistory(images.History)
 
 		systemPrompt = withToolManifest(systemPrompt, mcpCfg.Tools)
 		return invocation{
