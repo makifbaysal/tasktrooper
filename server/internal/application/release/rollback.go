@@ -551,6 +551,7 @@ func (s *Service) reopenTasks(ctx context.Context, r domain.Release) {
 			log.Warn().Err(err).Str("task_id", t.ID.String()).Msg("release: posting the rollback comment failed")
 		}
 	}
+	s.wakeReleaseQueue(ctx)
 }
 
 // shouldMoveReopenedTask re-reads the task's live column rather than trusting

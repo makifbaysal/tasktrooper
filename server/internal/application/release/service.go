@@ -311,6 +311,9 @@ type Service struct {
 	impact          ImpactReader
 	attributed      map[uuid.UUID]attributedIncident
 
+	queueMu      sync.Mutex
+	queueWokenAt map[uuid.UUID]time.Time
+
 	cadenceMu  sync.Mutex
 	watching   bool
 	watchNotes uint64

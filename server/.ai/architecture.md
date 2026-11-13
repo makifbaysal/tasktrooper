@@ -537,7 +537,18 @@ the task left in `done`, because the merge already happened and cannot be undone
   (`idx_releases_one_draft` makes a racing second `Create` fail; the loser re-reads the draft
   the winner just made and `AddTasks` instead). The task stays in `done`; nothing dispatches
   until a human cuts it.
-- `on_merge` / `dispatch` → **take over** the component's currently open release, if any: mark
+- `on_merge` / `dispatch` → **one release at a time** (`release_queue.go`): `MergeGate` refuses
+  the merge (`ErrReleaseInFlight`, hold `release_in_flight`, detail = the in-flight release's
+  last task + version) while any release of the component is `pending` / `deploying` /
+  `verifying` / `awaiting_verdict` / `rolling_back` / `failed`, and also while an older task of
+  the same component is still held on `release_in_flight` (FIFO by `blocked_at`). The hold is
+  only cleared by the woken task's own gate pass. `wakeReleaseQueue` runs after `Finish`, after
+  `reopenTasks` (rollback) and on every `SweepOnce`: for each component with nothing in flight it
+  wakes the head of its queue (re-waking the same task at most every `queueReWakeInterval`,
+  10 min), and drops holds of tasks that left `done`. `batch` components are not queued.
+  The supersede below therefore only happens when a merge bypassed the gate (a human merged on
+  GitHub):
+  **take over** the component's currently open release, if any: mark
   it `superseded` (verdict `"superseded by <new version>"`), carry its tasks into the new one,
   and silently un-park (never wake) any card of the old release still parked on
   `release_watch` — the new release's card is the one that gets woken. Create the release at
