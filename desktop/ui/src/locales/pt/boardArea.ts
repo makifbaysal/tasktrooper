@@ -242,7 +242,6 @@ export const boardArea = {
       previewRunning: "Em execução",
       previewFailed: "Falhou",
       previewStartFailed: "Não foi possível iniciar o preview local",
-      previewOtherTask: "Já há um preview de outra tarefa em execução",
       analizReviewHeading: "Sua revisão é necessária",
       analizReviewApprove: "Aprovar",
       analizReviewDecline: "Recusar",

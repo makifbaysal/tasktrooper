@@ -19,7 +19,7 @@ const startTaskPreviewToolName = "start_task_preview"
 // per-branch preview.
 type LocalPreviewRunner interface {
 	Start(ctx context.Context, repositoryID, taskID uuid.UUID, commandOverride string) (domain.LocalPreview, error)
-	Status(repositoryID uuid.UUID) (domain.LocalPreview, bool)
+	Status(repositoryID, taskID uuid.UUID) (domain.LocalPreview, bool)
 }
 
 // Vars so the unit test can shrink them.
@@ -77,8 +77,8 @@ func (t *startTaskPreviewTool) Execute(ctx context.Context, arguments string) do
 		return *res
 	}
 
-	preview, ok := t.kit.LocalPreviews.Status(repositoryID)
-	if !ok || preview.TaskID != taskID || !isLive(preview.Status) {
+	preview, ok := t.kit.LocalPreviews.Status(repositoryID, taskID)
+	if !ok || !isLive(preview.Status) {
 		started, err := t.kit.LocalPreviews.Start(ctx, repositoryID, taskID, "")
 		if err != nil {
 			return toolError(startTaskPreviewToolName, err.Error())
@@ -86,7 +86,7 @@ func (t *startTaskPreviewTool) Execute(ctx context.Context, arguments string) do
 		preview = started
 	}
 
-	preview = t.awaitURL(ctx, repositoryID, preview)
+	preview = t.awaitURL(ctx, repositoryID, taskID, preview)
 	return toolJSON(startTaskPreviewToolName, localPreviewOutput(preview))
 }
 
@@ -94,7 +94,7 @@ func isLive(status domain.LocalPreviewStatus) bool {
 	return status == domain.LocalPreviewStarting || status == domain.LocalPreviewRunning
 }
 
-func (t *startTaskPreviewTool) awaitURL(ctx context.Context, repositoryID uuid.UUID, preview domain.LocalPreview) domain.LocalPreview {
+func (t *startTaskPreviewTool) awaitURL(ctx context.Context, repositoryID, taskID uuid.UUID, preview domain.LocalPreview) domain.LocalPreview {
 	deadline := time.Now().Add(startTaskPreviewPollTimeout)
 	for preview.URL == "" && preview.Status != domain.LocalPreviewFailed && time.Now().Before(deadline) {
 		select {
@@ -102,7 +102,7 @@ func (t *startTaskPreviewTool) awaitURL(ctx context.Context, repositoryID uuid.U
 			return preview
 		case <-time.After(startTaskPreviewPollInterval):
 		}
-		if current, ok := t.kit.LocalPreviews.Status(repositoryID); ok {
+		if current, ok := t.kit.LocalPreviews.Status(repositoryID, taskID); ok {
 			preview = current
 		}
 	}

@@ -242,7 +242,6 @@ export const boardArea = {
       previewRunning: "运行中",
       previewFailed: "失败",
       previewStartFailed: "无法启动本地预览",
-      previewOtherTask: "另一个任务的预览已在运行",
       analizReviewHeading: "需要你审查",
       analizReviewApprove: "批准",
       analizReviewDecline: "拒绝",

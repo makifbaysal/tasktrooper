@@ -251,7 +251,6 @@ export const boardArea: BoardAreaDict = {
       previewRunning: "Çalışıyor",
       previewFailed: "Başarısız",
       previewStartFailed: "Lokal önizleme başlatılamadı",
-      previewOtherTask: "Başka bir task için önizleme zaten çalışıyor",
       analizReviewHeading: "İncelemeniz bekleniyor",
       analizReviewApprove: "Onayla",
       analizReviewDecline: "Reddet",

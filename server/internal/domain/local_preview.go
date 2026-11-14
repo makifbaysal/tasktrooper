@@ -16,7 +16,7 @@ const (
 	LocalPreviewFailed   LocalPreviewStatus = "failed"
 )
 
-// LocalPreview is one repository's "run it locally" process — the human_uat
+// LocalPreview is one task's "run it locally" process — the human_uat
 // reviewer's own manual pass at the task's branch, running on this machine.
 // See application/localpreview.
 type LocalPreview struct {

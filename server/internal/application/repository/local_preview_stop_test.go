@@ -18,35 +18,37 @@ import (
 // the real Stop off the request path (see the "go s.localPreview.Stop" call
 // in service.go) so it can be waited on without blocking the column move.
 type fakeLocalPreviewStopper struct {
-	mu           sync.Mutex
-	stoppedRepos []uuid.UUID
+	mu          sync.Mutex
+	stoppedList []stoppedPreview
 }
 
-func (f *fakeLocalPreviewStopper) Stop(repositoryID uuid.UUID) {
+type stoppedPreview struct{ repositoryID, taskID uuid.UUID }
+
+func (f *fakeLocalPreviewStopper) Stop(repositoryID, taskID uuid.UUID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.stoppedRepos = append(f.stoppedRepos, repositoryID)
+	f.stoppedList = append(f.stoppedList, stoppedPreview{repositoryID, taskID})
 }
 
-func (f *fakeLocalPreviewStopper) stopped() []uuid.UUID {
+func (f *fakeLocalPreviewStopper) stopped() []stoppedPreview {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]uuid.UUID(nil), f.stoppedRepos...)
+	return append([]stoppedPreview(nil), f.stoppedList...)
 }
 
-func requireEventuallyStopped(t *testing.T, stopper *fakeLocalPreviewStopper, repoID uuid.UUID) {
+func requireEventuallyStopped(t *testing.T, stopper *fakeLocalPreviewStopper, repoID, taskID uuid.UUID) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		stopped := stopper.stopped()
-		return len(stopped) == 1 && stopped[0] == repoID
-	}, time.Second, time.Millisecond, "want the repository's preview stopped off the request path")
+		return len(stopped) == 1 && stopped[0] == stoppedPreview{repoID, taskID}
+	}, time.Second, time.Millisecond, "want the moved task's own preview stopped off the request path")
 }
 
-// TestUpdateTaskStopsTheRepositorysLocalPreviewOnAnyColumnMove pins the rule
-// that a running preview is tied to the task's column, not to a specific
-// transition: whichever column the task lands in, the single UpdateTask
-// chokepoint stops the repository's preview the same way Stop/Close already do.
-func TestUpdateTaskStopsTheRepositorysLocalPreviewOnAnyColumnMove(t *testing.T) {
+// TestUpdateTaskStopsTheTasksLocalPreviewOnAnyColumnMove pins the rule that a
+// running preview is tied to its task's column, not to a specific transition:
+// whichever column the task lands in, the single UpdateTask chokepoint stops
+// that task's preview, and only that task's.
+func TestUpdateTaskStopsTheTasksLocalPreviewOnAnyColumnMove(t *testing.T) {
 	repoID, taskID := uuid.New(), uuid.New()
 	tasks := &fakeReleaseTaskStore{task: domain.BoardTask{
 		ID: taskID, RepositoryID: repoID, Key: "APP-1", TaskType: "task", Column: domain.TaskColumnInProgress,
@@ -66,7 +68,7 @@ func TestUpdateTaskStopsTheRepositorysLocalPreviewOnAnyColumnMove(t *testing.T) 
 	})
 
 	require.NoError(t, err)
-	requireEventuallyStopped(t, stopper, repoID)
+	requireEventuallyStopped(t, stopper, repoID, taskID)
 }
 
 // TestUpdateTaskLeavingTheColumnUnchangedDoesNotTouchThePreview makes sure the
@@ -144,7 +146,7 @@ func TestUpdateTaskStopsThePreviewWhenHumanUATIsApprovedToDone(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	requireEventuallyStopped(t, stopper, repoID)
+	requireEventuallyStopped(t, stopper, repoID, taskID)
 }
 
 // TestUpdateTaskDoesNotBlockOnAStopThatTakesLonger_thanTheRequest proves the
@@ -193,6 +195,6 @@ type slowLocalPreviewStopper struct {
 	block chan struct{}
 }
 
-func (f *slowLocalPreviewStopper) Stop(uuid.UUID) {
+func (f *slowLocalPreviewStopper) Stop(_, _ uuid.UUID) {
 	<-f.block
 }
