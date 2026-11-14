@@ -69,6 +69,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useI18n } from "@/hooks/useI18n";
+import { useMentionOptions } from "@/hooks/useMentionOptions";
 import { usePolling } from "@/hooks/usePolling";
 import { useRepositoryModel } from "@/hooks/useRepositoryModel";
 import { useTaskTypes } from "@/hooks/useTaskTypes";
@@ -129,6 +130,7 @@ export function TaskDetailDrawer({
   const { t } = useI18n();
   const { taskTypes } = useTaskTypes();
   const navigate = useNavigate();
+  const mentionOptions = useMentionOptions();
   const [envCredentialRejected, setEnvCredentialRejected] = useState(false);
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [runs, setRuns] = useState<TaskAgentRun[]>([]);
@@ -141,6 +143,7 @@ export function TaskDetailDrawer({
   const [focusRun, setFocusRun] = useState<{ id: string; nonce: number } | null>(null);
   const [releaseDrawerOpen, setReleaseDrawerOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [pendingCommentAttachments, setPendingCommentAttachments] = useState<AttachmentMeta[]>([]);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
@@ -446,8 +449,14 @@ export function TaskDetailDrawer({
     if (!task || !commentText.trim()) return;
     setSubmittingComment(true);
     try {
-      await api.createTaskComment(repositoryId, task.id, commentText.trim());
+      await api.createTaskComment(
+        repositoryId,
+        task.id,
+        commentText.trim(),
+        pendingCommentAttachments.map((a) => a.id),
+      );
       setCommentText("");
+      setPendingCommentAttachments([]);
       await loadDetails();
       onUpdated();
       toast.success(t("boardArea.components.taskDetail.commentAdded"));
@@ -1421,6 +1430,9 @@ export function TaskDetailDrawer({
                                 <span>{formatRelativeDate(c.created_at)}</span>
                               </div>
                               <MarkdownContent content={c.content} className="mt-1.5 text-sm leading-relaxed" />
+                              {c.attachments && c.attachments.length > 0 && (
+                                <AttachmentList compact attachments={c.attachments} className="mt-1.5" />
+                              )}
                             </div>
                           );
                         })
@@ -1431,6 +1443,10 @@ export function TaskDetailDrawer({
                       onChange={setCommentText}
                       placeholder={t("boardArea.components.taskDetail.commentPlaceholder")}
                       rows={3}
+                      mentionOptions={mentionOptions}
+                      attachmentsEnabled
+                      pendingAttachments={pendingCommentAttachments}
+                      onPendingAttachmentsChange={setPendingCommentAttachments}
                     />
                     <Button
                       size="sm"
