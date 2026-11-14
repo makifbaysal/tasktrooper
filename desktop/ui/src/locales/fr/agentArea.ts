@@ -327,7 +327,7 @@ export const agentArea = {
         label: "Écrire à {name}",
         placeholder: "Demandez une fonctionnalité, signalez un bug ou posez une question sur le tableau…",
         send: "Envoyer",
-        hint: "Enter pour envoyer · Shift+Enter pour un saut de ligne",
+        hint: "Enter pour envoyer · Shift+Enter pour un saut de ligne · @ pour mentionner un agent, un projet ou un dépôt",
         failed: "Impossible de démarrer une conversation",
         suggestions: {
           board: {
