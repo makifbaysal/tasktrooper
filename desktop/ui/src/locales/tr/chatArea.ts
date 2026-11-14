@@ -209,8 +209,28 @@ export const chatArea: ChatAreaDict = {
       resultsCount: "{count} sonuç",
     },
   },
+  voice: {
+    start: "Agent ile konuş",
+    end: "Bitir",
+    hint: "Dinliyorum — hazır olduğunda konuş",
+    state: {
+      starting: "Mikrofon açılıyor…",
+      listening: "Dinliyorum",
+      thinking: "Düşünüyor…",
+      speaking: "Konuşuyor — sözünü kesmek için konuş",
+      off: "Ses kapalı",
+    },
+    error: {
+      micDenied: "TaskTrooper mikrofonu kullanamıyor. Sistem Ayarları → Gizlilik ve Güvenlik → Mikrofon'dan izin verin.",
+      micMissing: "Mikrofon bulunamadı.",
+      generic: "Sesli konuşma durdu: {message}",
+    },
+  },
   markdown: {
     empty: "Boş",
+    visual: {
+      title: "Agent'ın çizimi",
+    },
     table: {
       scrollHint: "Diğer sütunları görmek için kaydırın",
     },

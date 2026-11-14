@@ -47,6 +47,13 @@ import type {
   ToolchainReport,
   TunnelStatus,
   UpdateStatus,
+  VoiceAudioEvent,
+  VoiceCapabilities,
+  VoiceChoice,
+  VoiceEngine,
+  VoiceEngineOption,
+  VoiceLanguage,
+  VoiceTranscriptEvent,
   WorkspaceCheck,
 } from "./types.js";
 import type {
@@ -236,6 +243,30 @@ export interface DesktopUpdatesHost {
  * The usage count. `set(false)` stops sending at once and deletes the
  * install's random id and the stored member id.
  */
+/**
+ * Talking to an agent (bridgeVersion 9). The page owns the microphone and the
+ * speaker; this side turns 16 kHz s16le PCM into text and text into float32
+ * PCM. Each utterance and each spoken text has its own id; events carry it.
+ */
+export interface DesktopVoiceHost {
+  capabilities(): Promise<VoiceCapabilities>;
+  listenStart(lang: VoiceLanguage): Promise<{ id: string }>;
+  /** About a tenth of a second of 16 kHz mono s16le PCM. */
+  listenAudio(id: string, pcm: ArrayBuffer): Promise<void>;
+  /** End of speech: the final text follows as an event. */
+  listenStop(id: string): Promise<void>;
+  listenCancel(id: string): Promise<void>;
+  onTranscript(cb: (event: VoiceTranscriptEvent) => void): () => void;
+  /**
+   * `voice.engine` is one of `capabilities().speakEngines[lang]`, left out
+   * the first of them; `voice.style` one of that engine's styles, left out
+   * its default. A style for EMA is refused.
+   */
+  speak(lang: VoiceLanguage, text: string, speed?: number, voice?: VoiceChoice): Promise<{ id: string }>;
+  speakCancel(id: string): Promise<void>;
+  onAudio(cb: (event: VoiceAudioEvent) => void): () => void;
+}
+
 export interface DesktopAnalyticsHost {
   get(): Promise<AnalyticsState>;
   set(on: boolean): Promise<AnalyticsState>;
@@ -386,8 +417,9 @@ export interface DesktopHost {
    * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
    * 7: `analytics.track(event)` / `analytics.identify(userId)`.
    * 8: `remoteAccess` — the tunnel for the phone app (local mode only).
+   * 9: `voice` — talking to an agent: speech to text and text to speech.
    */
-  bridgeVersion: 8;
+  bridgeVersion: 9;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;
@@ -396,6 +428,7 @@ export interface DesktopHost {
   analytics: DesktopAnalyticsHost;
   toolchain: DesktopToolchainHost;
   remoteAccess: DesktopRemoteAccessHost;
+  voice: DesktopVoiceHost;
 }
 
 export type {
@@ -417,4 +450,11 @@ export type {
   ToolchainJobStep,
   ToolchainReport,
   UpdateStatus,
+  VoiceAudioEvent,
+  VoiceCapabilities,
+  VoiceChoice,
+  VoiceEngine,
+  VoiceEngineOption,
+  VoiceLanguage,
+  VoiceTranscriptEvent,
 };

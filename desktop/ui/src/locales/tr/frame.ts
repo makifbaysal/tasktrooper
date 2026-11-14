@@ -18,6 +18,7 @@ export const frame: FrameDict = {
         label: "{name} için mesaj",
         placeholder: "PM'den iste…",
         shortcut: "{mod}K",
+        voice: "{name} ile sesli konuş",
         failed: "Sohbet başlatılamadı",
       },
       feedback: {

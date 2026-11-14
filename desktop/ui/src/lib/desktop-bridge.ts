@@ -735,6 +735,63 @@ export interface DesktopToolchainHost {
   openPage(id: ToolchainId): Promise<void>;
 }
 
+export type DesktopVoiceLanguage = "tr" | "en";
+
+/** EMA Lightning reads Turkish, Kokoro English, Supertonic both. */
+export type DesktopVoiceEngine = "ema" | "kokoro" | "supertonic";
+
+export interface DesktopVoiceEngineOption {
+  engine: DesktopVoiceEngine;
+  /** Its styles, its default first; empty for EMA. */
+  styles: string[];
+}
+
+/** Which bundled engine and style read a text; either left out is the default. */
+export interface DesktopVoiceChoice {
+  engine?: DesktopVoiceEngine;
+  style?: string;
+}
+
+export interface DesktopVoiceCapabilities {
+  listen: Record<DesktopVoiceLanguage, boolean>;
+  speak: Record<DesktopVoiceLanguage, boolean>;
+  /** The bundled engines per language, the one used when none is named first; empty where there is none. */
+  speakEngines: Record<DesktopVoiceLanguage, DesktopVoiceEngineOption[]>;
+}
+
+export type DesktopVoiceTranscriptEvent =
+  | { id: string; type: "ready" }
+  | { id: string; type: "partial" | "final"; text: string }
+  | { id: string; type: "error"; code: string; message: string };
+
+export interface DesktopVoiceAudioEvent {
+  id: string;
+  sampleRate: number;
+  /** Little-endian float32 mono PCM. */
+  pcm?: ArrayBuffer;
+  done?: boolean;
+  error?: string;
+}
+
+/** Bridge 9: talking to an agent — this computer's speech recognizer and voice. */
+export interface DesktopVoiceHost {
+  capabilities(): Promise<DesktopVoiceCapabilities>;
+  listenStart(lang: DesktopVoiceLanguage): Promise<{ id: string }>;
+  /** 16 kHz mono s16le PCM, at most 64 KB per call. */
+  listenAudio(id: string, pcm: ArrayBuffer): Promise<void>;
+  listenStop(id: string): Promise<void>;
+  listenCancel(id: string): Promise<void>;
+  onTranscript(cb: (event: DesktopVoiceTranscriptEvent) => void): () => void;
+  /**
+   * `voice.engine` is one of `capabilities().speakEngines[lang]`, left out the
+   * first of them; `voice.style` one of that engine's styles, left out its
+   * default. A style for EMA is refused.
+   */
+  speak(lang: DesktopVoiceLanguage, text: string, speed?: number, voice?: DesktopVoiceChoice): Promise<{ id: string }>;
+  speakCancel(id: string): Promise<void>;
+  onAudio(cb: (event: DesktopVoiceAudioEvent) => void): () => void;
+}
+
 /** The hook the desktop preload installs on `window`. Absent in a browser. */
 export interface TaskTrooperDesktopHost {
   info?: () => Promise<{ app: string; version: string; platform: string }>;
@@ -770,6 +827,8 @@ export interface TaskTrooperDesktopHost {
   toolchain?: DesktopToolchainHost;
   /** Bridge 8. Absent in a browser, in older shells and in account mode. */
   remoteAccess?: DesktopRemoteAccessHost;
+  /** Bridge 9. Absent in a browser and in older shells. */
+  voice?: DesktopVoiceHost;
   /**
    * Where this app's API calls go: "http://127.0.0.1:<port>", no path suffix.
    *
@@ -790,6 +849,7 @@ export interface TaskTrooperDesktopHost {
    * 6: `account.mcp` and `account.openKeys({mcp})` — this computer's own MCP servers.
    * 7: `analytics.track(event)` / `analytics.identify(userId)`.
    * 8: `remoteAccess` — the tunnel for the phone app (local mode only).
+   * 9: `voice` — talking to an agent: speech to text and text to speech.
    */
   bridgeVersion?: number;
   /**
@@ -857,4 +917,8 @@ export function desktopToolchain(): DesktopToolchainHost | null {
 
 export function desktopRemoteAccess(): DesktopRemoteAccessHost | null {
   return window.__tasktrooperDesktop?.remoteAccess ?? null;
+}
+
+export function desktopVoice(): DesktopVoiceHost | null {
+  return window.__tasktrooperDesktop?.voice ?? null;
 }

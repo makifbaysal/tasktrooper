@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Mic } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { Agent, AttachmentMeta } from "@/api";
@@ -7,10 +8,12 @@ import { AttachmentDropzone, uploadAttachmentFiles } from "@/components/attachme
 import { AttachmentList } from "@/components/attachments/AttachmentList";
 import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MentionTextarea } from "@/components/chat/MentionTextarea";
+import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
 import { useMentionOptions } from "@/hooks/useMentionOptions";
-import { startLeadConversation } from "@/lib/leadAgent";
+import { useVoiceAvailable } from "@/hooks/useVoiceConversation";
+import { startLeadConversation, startLeadVoiceConversation } from "@/lib/leadAgent";
 import { shortcutModifier } from "@/lib/platform";
 import { agentRole, logEvent } from "@/lib/analytics";
 
@@ -19,7 +22,8 @@ interface LeadQuickAskProps {
 }
 
 export function LeadQuickAsk({ agent }: LeadQuickAskProps) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+  const voiceAvailable = useVoiceAvailable(lang);
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
@@ -89,6 +93,18 @@ export function LeadQuickAsk({ agent }: LeadQuickAskProps) {
     }
   };
 
+  const talk = async () => {
+    setBusy(true);
+    try {
+      await startLeadVoiceConversation(navigate, agent.id, t("agentArea.chat.newSessionTitle", { name: agent.name }));
+      logEvent("chat_start", { agent_role: agentRole(agent), source: "header_voice" });
+    } catch {
+      toast.error(t("frame.layout.header.leadAsk.failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className="relative hidden w-full max-w-md items-center gap-1 md:flex"
@@ -140,6 +156,19 @@ export function LeadQuickAsk({ agent }: LeadQuickAskProps) {
         disabled={busy || pastingAttachment}
         onUploaded={(metas) => setPendingAttachments((prev) => [...prev, ...metas])}
       />
+      {voiceAvailable && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          disabled={busy}
+          onClick={() => void talk()}
+          aria-label={t("frame.layout.header.leadAsk.voice", { name: agent.name })}
+          title={t("frame.layout.header.leadAsk.voice", { name: agent.name })}
+        >
+          <Mic className="h-4 w-4" />
+        </Button>
+      )}
     </div>
   );
 }

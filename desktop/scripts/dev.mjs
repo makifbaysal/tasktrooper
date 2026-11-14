@@ -65,6 +65,9 @@ await run(process.execPath, [path.join(root, "scripts/build-server.mjs")]);
 // child fails to spawn and embeddings are silently unavailable all session.
 await run(process.execPath, [path.join(root, "scripts/build-embedder.mjs")]);
 
+// The macOS speech helper for talking to agents; a no-op elsewhere.
+await run(process.execPath, [path.join(root, "scripts/build-speech.mjs")]);
+
 // Account mode's two: the runner, and the executor from ../server (skipped
 // on a checkout that predates it). Without them signing in leaves a runner
 // that cannot start, or agent.run answering not_ready.

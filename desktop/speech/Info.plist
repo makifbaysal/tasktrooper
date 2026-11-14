@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Linked into the tt-speech binary's __TEXT,__info_plist section. The helper
+  disclaims its parent (disclaim.swift), so macOS reads the speech-recognition
+  usage string from here, not from whichever app started it.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>ai.tasktrooper.speech</string>
+  <key>CFBundleName</key>
+  <string>TaskTrooper</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>TaskTrooper turns what you say to an agent into text on this Mac.</string>
+</dict>
+</plist>

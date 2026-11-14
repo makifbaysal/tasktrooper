@@ -1,0 +1,110 @@
+{
+ "frontend": [
+  {
+   "input": "İstanbul'da IŞIK",
+   "output": "istanbul'da ışık"
+  },
+  {
+   "input": "Merhaba! Bugün hava çok güzel, toplantı öğleden sonra saat 15:30'da başlayacak.",
+   "output": "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak."
+  },
+  {
+   "input": "25 TL",
+   "output": "yirmi beş türk lirası"
+  },
+  {
+   "input": "15 Ekim 2026 Çarşamba günü saat 14:30'da, 1.250.000 TL ödeme.",
+   "output": "on beş ekim iki bin yirmi altı çarşamba günü saat on dört otuzda, bir milyon iki yüz elli bin türk lirası ödeme."
+  },
+  {
+   "input": "Dr. Ahmet 3. kattaki %40 indirimli ürünü aldı.",
+   "output": "doktor ahmet üç. kattaki yüzde kırk indirimli ürünü aldı."
+  },
+  {
+   "input": "“Tırnak” ve ‘tek tırnak’ — uzun tire – kısa tire… üç nokta",
+   "output": "\"tırnak\" ve 'tek tırnak' - uzun tire - kısa tire... üç nokta"
+  },
+  {
+   "input": "Çok güzel...  ama   yine de\tbilmiyorum\n\nyeni satır",
+   "output": "çok güzel... ama yine de bilmiyorum yeni satır"
+  },
+  {
+   "input": "ÇĞİÖŞÜ çğıöşü IİıiÂâÊêÎîÛûé",
+   "output": "çğiöşü çğıöşü ıiıiaaeeiiuue"
+  },
+  {
+   "input": "naïve café ﬁnal ß ½ 日本 😀 Привет",
+   "output": "naive cafe final unikod u artı sıfır sıfır be de unikod u artı bir fe altı sıfır sıfır"
+  },
+  {
+   "input": "a\u0000b‮c‏de",
+   "output": "a b c d e"
+  },
+  {
+   "input": "",
+   "output": ""
+  },
+  {
+   "input": "   \t ",
+   "output": ""
+  },
+  {
+   "input": "API v2.1 endpoint'i 200ms'de döndü.",
+   "output": "a pe i ve iki nokta bir endpoint'i iki sıfır sıfır me se kesme de e döndü."
+  },
+  {
+   "input": "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+   "output": "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım"
+  }
+ ],
+ "alphabet": [
+  {
+   "input": "İstanbul'da IŞIK",
+   "output": "istanbul'da ışık"
+  },
+  {
+   "input": "Merhaba! Bugün hava çok güzel, toplantı öğleden sonra saat 15:30'da başlayacak.",
+   "output": "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat : 'da başlayacak."
+  },
+  {
+   "input": "25 TL",
+   "output": "tl"
+  },
+  {
+   "input": "15 Ekim 2026 Çarşamba günü saat 14:30'da, 1.250.000 TL ödeme.",
+   "output": "ekim çarşamba günü saat : 'da, . . tl ödeme."
+  },
+  {
+   "input": "Dr. Ahmet 3. kattaki %40 indirimli ürünü aldı.",
+   "output": "dr. ahmet . kattaki % indirimli ürünü aldı."
+  },
+  {
+   "input": "“Tırnak” ve ‘tek tırnak’ — uzun tire – kısa tire… üç nokta",
+   "output": "\"tırnak\" ve 'tek tırnak' - uzun tire - kısa tire... üç nokta"
+  },
+  {
+   "input": "Çok güzel...  ama   yine de\tbilmiyorum\n\nyeni satır",
+   "output": "çok güzel... ama yine de bilmiyorum yeni satır"
+  },
+  {
+   "input": "ÇĞİÖŞÜ çğıöşü IİıiÂâÊêÎîÛûé",
+   "output": "çğiöşü çğıöşü ıiıiaaeeiiuue"
+  },
+  {
+   "input": "naïve café ﬁnal ß ½ 日本 😀 Привет",
+   "output": "naive cafe final"
+  },
+  {
+   "input": "a\u0000b‮c‏de",
+   "output": "a b c d e"
+  },
+  {
+   "input": "API v2.1 endpoint'i 200ms'de döndü.",
+   "output": "apı v . endpoint'i ms'de döndü."
+  },
+  {
+   "input": "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+   "output": "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım"
+  }
+ ]
+}

@@ -37,7 +37,9 @@ runner/runner.exe
 .env
 .env.*
 
-# Tool caches and logs.
+# Tool caches and logs. `.cache/` holds the voice files build-embedder.mjs
+# downloads (~241 MB, pinned by hash in embedder/src/tts/files.ts).
+.cache/
 .vite/
 .eslintcache
 *.tsbuildinfo

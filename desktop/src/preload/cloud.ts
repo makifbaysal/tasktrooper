@@ -17,6 +17,7 @@ import type {
   DesktopRunnerHost,
   DesktopToolchainHost,
   DesktopUpdatesHost,
+  DesktopVoiceHost,
   HostLogsRequest,
   HostOverrides,
   HostPreferences,
@@ -40,6 +41,9 @@ import type {
   ToolchainJobState,
   ToolchainReport,
   UpdateStatus,
+  VoiceAudioEvent,
+  VoiceCapabilities,
+  VoiceTranscriptEvent,
 } from "../ipc/types.js";
 
 /**
@@ -221,6 +225,18 @@ const remoteAccess: DesktopRemoteAccessHost = {
   ngrokDisconnect: () => call<RemoteAccessState>(CLOUD_CHANNELS.remoteAccessNgrokDisconnect),
 };
 
+const voice: DesktopVoiceHost = {
+  capabilities: () => call<VoiceCapabilities>(CLOUD_CHANNELS.voiceCapabilities),
+  listenStart: (lang) => call<{ id: string }>(CLOUD_CHANNELS.voiceListenStart, { lang }),
+  listenAudio: (id, pcm) => call<void>(CLOUD_CHANNELS.voiceListenAudio, { id, pcm }),
+  listenStop: (id) => call<void>(CLOUD_CHANNELS.voiceListenStop, { id }),
+  listenCancel: (id) => call<void>(CLOUD_CHANNELS.voiceListenCancel, { id }),
+  onTranscript: (cb) => subscribe<VoiceTranscriptEvent>(CLOUD_EVENTS.voiceTranscript, cb),
+  speak: (lang, text, speed, voice) => call<{ id: string }>(CLOUD_CHANNELS.voiceSpeak, { lang, text, speed, voice }),
+  speakCancel: (id) => call<void>(CLOUD_CHANNELS.voiceSpeakCancel, { id }),
+  onAudio: (cb) => subscribe<VoiceAudioEvent>(CLOUD_EVENTS.voiceAudio, cb),
+};
+
 /**
  * The synchronous reads, made once while the preload runs.
  *
@@ -246,7 +262,7 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 8,
+  bridgeVersion: 9,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,
@@ -255,6 +271,7 @@ const host: DesktopHost = {
   analytics,
   toolchain,
   remoteAccess,
+  voice,
 };
 
 contextBridge.exposeInMainWorld(
@@ -267,5 +284,6 @@ contextBridge.exposeInMainWorld(
     analytics: Object.freeze(analytics),
     toolchain: Object.freeze(toolchain),
     remoteAccess: Object.freeze(remoteAccess),
+    voice: Object.freeze(voice),
   }),
 );

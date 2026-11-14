@@ -74,8 +74,9 @@ extraResources:
     filter:
       - "**/*"
   # The embedder: its JS bundle plus onnxruntime-web's staged .wasm/.mjs runtime
-  # files, built by `npm run build:embedder` into this package's own dist/ — no
-  # model weights here, those download into userData at runtime. A flat
+  # files, built by `npm run build:embedder` into this package's own dist/. The
+  # embedding model downloads into userData at runtime; the Turkish and English
+  # voices (`voice/`, ~241 MB, pinned and hash-checked at build time) ship here. A flat
   # directory, not a node_modules tree, which is exactly why engine.ts points
   # `ort.env.wasm.wasmPaths` at it explicitly rather than relying on relative
   # auto-resolution. `to: embedder` is the same name embedderScriptPath()
@@ -117,6 +118,7 @@ mac:
     - Contents/Resources/bin/agent-server
     - Contents/Resources/bin/executor
     - Contents/Resources/bin/runner
+    - Contents/Resources/bin/tt-speech
   # Submits the signed .app to Apple and staples the ticket, using whichever of
   # APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER (preferred) or
   # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID is present in the
@@ -134,6 +136,10 @@ mac:
     # the window would look like quitting.
     LSUIElement: false
     NSHumanReadableCopyright: TaskTrooper
+    # Talking to an agent: the page's getUserMedia. Without the string macOS
+    # kills the renderer the first time it asks for the microphone.
+    NSMicrophoneUsageDescription: TaskTrooper listens when you talk to an agent.
+    NSSpeechRecognitionUsageDescription: TaskTrooper turns what you say to an agent into text on this Mac.
 
 dmg:
   artifactName: ${productName}-${version}-${arch}.${ext}

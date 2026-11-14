@@ -10,12 +10,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
 import { useMentionOptions } from "@/hooks/useMentionOptions";
 import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
-import { startLeadConversation } from "@/lib/leadAgent";
+import { useVoiceAvailable } from "@/hooks/useVoiceConversation";
+import { startLeadConversation, startLeadVoiceConversation } from "@/lib/leadAgent";
 import { agentRole, logEvent } from "@/lib/analytics";
 
 export function HomePage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
+  const voiceAvailable = useVoiceAvailable(lang);
   const ctx = useWorkspaceOutlet();
   const [starting, setStarting] = useState(false);
   const mentionOptions = useMentionOptions();
@@ -40,9 +42,26 @@ export function HomePage() {
         setStarting(false);
       }
     };
+    const talk = async () => {
+      if (starting) return;
+      setStarting(true);
+      try {
+        await startLeadVoiceConversation(navigate, lead.id, t("agentArea.chat.newSessionTitle", { name: lead.name }));
+        logEvent("chat_start", { agent_role: agentRole(lead), source: "home_voice" });
+      } catch {
+        toast.error(t("agentArea.chat.lead.welcome.failed"));
+        setStarting(false);
+      }
+    };
     return (
       <div className="flex h-full min-h-0 flex-1 flex-col">
-        <LeadWelcome agent={lead} onSubmit={start} busy={starting} mentionOptions={mentionOptions} />
+        <LeadWelcome
+          agent={lead}
+          onSubmit={start}
+          busy={starting}
+          mentionOptions={mentionOptions}
+          onStartVoice={voiceAvailable ? () => void talk() : undefined}
+        />
       </div>
     );
   }

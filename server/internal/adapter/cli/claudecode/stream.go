@@ -33,6 +33,26 @@ type event struct {
 	Error string `json:"error"`
 	APIErrorStatus int `json:"api_error_status"`
 	RateLimit *rateLimitInfo `json:"rate_limit_info"`
+	Event *streamEvent `json:"event"`
+}
+
+// streamEvent is one raw API event, present with --include-partial-messages.
+type streamEvent struct {
+	Type         string `json:"type"`
+	ContentBlock *struct {
+		Type string `json:"type"`
+	} `json:"content_block"`
+	Delta *struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"delta"`
+}
+
+// deltaSink takes a text block as it is written, ahead of the whole block in
+// its "assistant" event. Thinking deltas are never passed on.
+type deltaSink interface {
+	OnTextStart()
+	OnTextDelta(text string)
 }
 
 type rateLimitInfo struct {
@@ -207,6 +227,9 @@ type streamingSink struct {
 	out   port.ChatStream
 	streamed bool
 	parent   string
+	// The text block being streamed by deltas, and what of it went out.
+	liveBlock bool
+	live      string
 }
 
 func (s *streamingSink) SetParentCall(callID string) {
@@ -227,9 +250,44 @@ func (s *streamingSink) OnSession(sessionID, model string) { s.inner.OnSession(s
 
 func (s *streamingSink) OnTurn() { s.inner.OnTurn() }
 
+func (s *streamingSink) OnTextStart() {
+	if s.parent != "" {
+		return
+	}
+	if s.streamed {
+		s.out.Text("\n\n")
+	}
+	s.liveBlock = true
+	s.live = ""
+	s.streamed = true
+}
+
+func (s *streamingSink) OnTextDelta(text string) {
+	if s.parent != "" || text == "" {
+		return
+	}
+	if !s.liveBlock {
+		s.OnTextStart()
+	}
+	s.out.Text(text)
+	s.live += text
+}
+
 func (s *streamingSink) OnAssistantText(text string) {
 	s.inner.OnAssistantText(text)
 	if s.parent != "" {
+		return
+	}
+	if s.liveBlock {
+		// The block already went out delta by delta; only a tail the deltas
+		// missed is still owed.
+		if strings.HasPrefix(text, s.live) {
+			if rest := text[len(s.live):]; rest != "" {
+				s.out.Text(rest)
+			}
+		}
+		s.liveBlock = false
+		s.live = ""
 		return
 	}
 	if s.streamed {
@@ -241,6 +299,10 @@ func (s *streamingSink) OnAssistantText(text string) {
 
 func (s *streamingSink) OnToolUse(callID, name, arguments string) {
 	s.inner.OnToolUse(callID, name, arguments)
+	if s.parent == "" {
+		s.liveBlock = false
+		s.live = ""
+	}
 	if s.parent == "" && s.streamed {
 		s.out.SegmentBreak()
 		s.streamed = false
@@ -323,6 +385,22 @@ func parseStream(r io.Reader, s sink) (outcome, error) {
 				case "tool_use":
 					toolNames[block.ID] = block.Name
 					s.OnToolUse(block.ID, block.Name, string(block.Input))
+				}
+			}
+		case "stream_event":
+			ds, ok := s.(deltaSink)
+			if !ok || ev.Event == nil {
+				continue
+			}
+			scopeParent(s, ev.ParentToolUseID)
+			switch ev.Event.Type {
+			case "content_block_start":
+				if ev.Event.ContentBlock != nil && ev.Event.ContentBlock.Type == "text" {
+					ds.OnTextStart()
+				}
+			case "content_block_delta":
+				if ev.Event.Delta != nil && ev.Event.Delta.Type == "text_delta" {
+					ds.OnTextDelta(ev.Event.Delta.Text)
 				}
 			}
 		case "user":

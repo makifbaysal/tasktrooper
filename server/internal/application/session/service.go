@@ -379,6 +379,7 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
+	history = appendVoiceModePrompt(history, req.Voice)
 	model := resolveChatModel(req.Model, sess.Model, agentModel)
 	effectivePolicy := domain.CeilToolPolicy(domain.UpliftWorkspaceTools(domain.MergeToolPolicy(policy, agentPolicy)), req.ToolCeiling)
 
@@ -628,6 +629,7 @@ func (s *Service) SendMessageStream(ctx context.Context, sessionID uuid.UUID, re
 	if err != nil {
 		return domain.AgentResponse{}, err
 	}
+	history = appendVoiceModePrompt(history, req.Voice)
 	model := resolveChatModel(req.Model, sess.Model, agentModel)
 	effectivePolicy := domain.CeilToolPolicy(domain.UpliftWorkspaceTools(domain.MergeToolPolicy(policy, agentPolicy)), req.ToolCeiling)
 

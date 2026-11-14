@@ -76,6 +76,7 @@ import { detectBinary, installPage } from "./tunnel/detect.js";
 import { TunnelManager } from "./tunnel/manager.js";
 import { HttpStatusError, nodeTunnelFiles, spawnTunnel } from "./tunnel/process.js";
 import { createListenerClient } from "./tunnel/server-client.js";
+import { VoiceService } from "./voice/voice.js";
 import { RemoteAccessStore } from "./tunnel/store.js";
 import { AppTray } from "./tray.js";
 import { openExternally, Shell } from "./window.js";
@@ -180,6 +181,26 @@ const toolchain = createToolchainService(
  * server decides what may cross it. Built here like the stores — it starts
  * nothing until `init()` at launch honours the auto-start switch.
  */
+/**
+ * Talking to an agent: the speech helper per utterance, the embedder's voice
+ * per spoken text. Both modes; it starts nothing until the page asks.
+ */
+const voice = new VoiceService({
+  platform: process.platform,
+  speechBinary: () => {
+    const file = path.join(binDir(), "tt-speech");
+    try {
+      accessSync(file, constants.X_OK);
+      return file;
+    } catch {
+      return null;
+    }
+  },
+  embedderUrl: () => supervisor.embedderUrl(),
+  publish: (channel, payload) => toCloud(channel, payload),
+  log: (line) => console.warn(line),
+});
+
 const remoteAccess = new TunnelManager({
   store: new RemoteAccessStore(app.getPath("userData")),
   detect: (provider) => detectBinary(provider),
@@ -575,7 +596,10 @@ const quit = quitSequence({
     tray = null;
   },
   stopToolchain: () => toolchain.shutdown(),
-  stopRemoteAccess: () => remoteAccess.shutdown(),
+  stopRemoteAccess: () => {
+    voice.stopAll();
+    return remoteAccess.shutdown();
+  },
   // Both, whichever mode is current: a session that switched modes can have
   // an embedder from local mode and a runner from account mode, and draining
   // an idle supervisor costs nothing.
@@ -666,6 +690,13 @@ const services: IpcServices = {
     (await updates?.check()) ?? { phase: "unsupported", detail: "The updater has not started yet." },
   restartToUpdate,
 
+  voiceCapabilities: () => voice.capabilities(),
+  voiceListenStart: (lang) => voice.listenStart(lang),
+  voiceListenAudio: (id, pcm) => voice.listenAudio(id, pcm),
+  voiceListenStop: (id) => voice.listenStop(id),
+  voiceListenCancel: (id) => voice.listenCancel(id),
+  voiceSpeak: (lang, text, speed, choice) => voice.speak(lang, text, speed, choice),
+  voiceSpeakCancel: (id) => voice.speakCancel(id),
   analyticsState: () => analytics.state(),
   setAnalytics: (on: boolean): AnalyticsState => analytics.set(on),
   trackAnalytics: (name: string, params: Record<string, string | number>) => analytics.track(name, params),

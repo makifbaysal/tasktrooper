@@ -20,6 +20,10 @@ import {
   validateToolchainId,
   validateToolchainIds,
   validateToolchainReportRequest,
+  validateVoiceId,
+  validateVoiceListenAudio,
+  validateVoiceListenStart,
+  validateVoiceSpeak,
 } from "./validate.js";
 import { TOOLCHAIN_IDS } from "./types.js";
 
@@ -459,5 +463,62 @@ describe("validateToolchainReportRequest", () => {
     expect(validateToolchainReportRequest({})).toEqual({});
     expect(validateToolchainReportRequest({ force: true })).toEqual({ force: true });
     expect(() => validateToolchainReportRequest({ force: "yes" })).toThrow(ValidationError);
+  });
+});
+
+describe("voice validators", () => {
+  const id = "0b7c5a52-1f2e-4c1a-9d3e-2b6f8e9a1c4d";
+
+  it("takes tr and en only", () => {
+    expect(validateVoiceListenStart({ lang: "tr" })).toEqual({ lang: "tr" });
+    expect(() => validateVoiceListenStart({ lang: "de" })).toThrow(ValidationError);
+    expect(() => validateVoiceListenStart({ lang: "tr-TR" })).toThrow(ValidationError);
+  });
+
+  it("takes ids this app issued, nothing else", () => {
+    expect(validateVoiceId({ id })).toEqual({ id });
+    expect(() => validateVoiceId({ id: "../etc" })).toThrow(ValidationError);
+  });
+
+  it("takes bounded 16-bit audio", () => {
+    const ok = validateVoiceListenAudio({ id, pcm: new Uint8Array(3200).buffer });
+    expect(ok.pcm.byteLength).toBe(3200);
+    expect(() => validateVoiceListenAudio({ id, pcm: new Uint8Array(3) })).toThrow(ValidationError);
+    expect(() => validateVoiceListenAudio({ id, pcm: new Uint8Array(0) })).toThrow(ValidationError);
+    expect(() => validateVoiceListenAudio({ id, pcm: new Uint8Array(64 * 1024 + 2) })).toThrow(ValidationError);
+    expect(() => validateVoiceListenAudio({ id, pcm: "AAAA" })).toThrow(ValidationError);
+  });
+
+  it("takes non-empty text and a sane speed", () => {
+    expect(validateVoiceSpeak({ lang: "tr", text: "Merhaba." })).toEqual({ lang: "tr", text: "Merhaba.", speed: 1 });
+    expect(validateVoiceSpeak({ lang: "tr", text: "Merhaba.", speed: 1.25 }).speed).toBe(1.25);
+    expect(() => validateVoiceSpeak({ lang: "tr", text: "   " })).toThrow(ValidationError);
+    expect(() => validateVoiceSpeak({ lang: "tr", text: "a".repeat(4001) })).toThrow(ValidationError);
+    expect(() => validateVoiceSpeak({ lang: "tr", text: "x", speed: 5 })).toThrow(ValidationError);
+    expect(() => validateVoiceSpeak({ lang: "tr", text: "x", speed: Number.NaN })).toThrow(ValidationError);
+  });
+
+  it("takes an optional voice: an engine from the fixed set and a style shaped like a style name", () => {
+    const base = { lang: "en", text: "Hi.", speed: 1 };
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { style: "bm_george" } })).toEqual({ ...base, style: "bm_george" });
+    expect(validateVoiceSpeak({ lang: "tr", text: "Hi.", voice: { engine: "supertonic", style: "F1" } })).toEqual({
+      ...base,
+      lang: "tr",
+      engine: "supertonic",
+      style: "F1",
+    });
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { engine: "kokoro" } })).toEqual({ ...base, engine: "kokoro" });
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { engine: null, style: null } })).toEqual(base);
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: null })).toEqual(base);
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { style: "x".repeat(32) } }).style).toHaveLength(32);
+    for (const engine of ["", "espeak", "EMA", 3, {}]) {
+      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { engine } })).toThrow(ValidationError);
+    }
+    for (const style of ["", "af heart", "af-heart", "af_heart; rm", "../af_heart", "x".repeat(33), "İ1", 3]) {
+      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { style } })).toThrow(ValidationError);
+    }
+    for (const voice of ["supertonic", 3, ["F1"]]) {
+      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", voice })).toThrow(ValidationError);
+    }
   });
 });

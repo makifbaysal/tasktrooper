@@ -15,6 +15,7 @@ export const frame = {
         label: "Escribir a {name}",
         placeholder: "Pregunta al PM…",
         shortcut: "{mod}K",
+        voice: "Hablar con {name}",
         failed: "No se pudo iniciar la conversación",
       },
       feedback: {

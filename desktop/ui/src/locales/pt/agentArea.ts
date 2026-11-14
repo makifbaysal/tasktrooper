@@ -328,6 +328,7 @@ export const agentArea = {
         placeholder: "Peça uma funcionalidade, relate um bug ou pergunte sobre o quadro…",
         send: "Enviar",
         hint: "Enter para enviar · Shift+Enter para nova linha · @ para marcar um agente, projeto ou repositório",
+        voice: "Falar por voz",
         failed: "Não foi possível iniciar uma conversa",
         suggestions: {
           board: {
