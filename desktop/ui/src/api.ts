@@ -315,6 +315,7 @@ export interface TaskComment {
   author_name?: string;
   content: string;
   created_at: string;
+  attachments?: AttachmentMeta[];
 }
 
 export type LocalPreviewStatus = "starting" | "running" | "stopped" | "failed";
@@ -7915,10 +7916,13 @@ export const api = {
       `/v1/repositories/${repositoryId}/tasks/${taskId}/comments`,
     ),
 
-  createTaskComment: (repositoryId: string, taskId: string, content: string) =>
+  createTaskComment: (repositoryId: string, taskId: string, content: string, attachmentIds?: string[]) =>
     request<TaskComment>(`/v1/repositories/${repositoryId}/tasks/${taskId}/comments`, {
       method: "POST",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({
+        content,
+        ...(attachmentIds && attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : {}),
+      }),
     }),
 
   /**
