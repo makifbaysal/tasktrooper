@@ -252,6 +252,9 @@ type Release struct {
 	// RollbackDismissal is written only by ReleaseStore.DismissRollbackProposal
 	// (migration 192), never by Update.
 	RollbackDismissal *RollbackDismissal `json:"rollback_dismissal"`
+	// CutProposal is written only by ReleaseStore.SetCutProposal (migration
+	// 206), never by Update, which clears it once the release leaves draft.
+	CutProposal *CutProposal `json:"cut_proposal"`
 	// RollbackAllowed and RollbackRefusal (a RollbackRefusal* code, empty
 	// when allowed) are what a rollback would answer right now; computed on
 	// read by the release service, never stored.
@@ -269,6 +272,16 @@ type RollbackProposal struct {
 	Reason     RollbackReason `json:"reason"`
 	Note       string         `json:"note,omitempty"`
 	IncidentID *uuid.UUID     `json:"incident_id,omitempty"`
+}
+
+// CutProposal is a cut of a draft batch release the release engineer
+// prepared because a person asked for one: nothing is tagged, built or
+// shipped until a human reviews it and cuts the release themselves.
+type CutProposal struct {
+	ProposedAt time.Time    `json:"proposed_at"`
+	By         ReleaseActor `json:"by"`
+	Version    string       `json:"version"`
+	Notes      string       `json:"notes,omitempty"`
 }
 
 // RollbackDismissal is a person declining the release engineer's proposed
@@ -369,4 +382,5 @@ const (
 	FinishReleaseToolName   = "finish_release"
 	ReleaseRollbackToolName = "rollback_release"
 	GetDeployImpactToolName = "get_deploy_impact"
+	ProposeCutToolName      = "propose_release_cut"
 )

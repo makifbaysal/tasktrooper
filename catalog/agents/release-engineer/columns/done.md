@@ -27,7 +27,7 @@ A task in `done` is finished as *work* — reviewed, tested, accepted. Nothing h
 ### 2. Act on `release.mode`
 
 - mode **`none`** — the merge was the release; nothing to do, stop. (`release.unconfirmed: true` only appears for a task merged outside this flow; stop as well — the card already says why.)
-- **`batch`** — the merge joined the component's draft release (created if there was none). Nothing to do; stop — a human cuts it later on the Deploy tab, and you are woken with a `pending` release when they do.
+- **`batch`** — the merge joined the component's draft release (created if there was none). Nothing to do; stop — a human cuts it later on the Deploy tab, and you are woken with a `pending` release when they do. Do not call `propose_release_cut` from a card: it is only for a person asking you in a chat to ship the release.
 - **`on_merge`** — call `watch_release`.
 - **`dispatch`** — call `deploy_release`, then `watch_release`. `deploy_release` refuses the same way as the merge does when any task of the release still has pending before-deploy steps or an unreleased deploy dependency: the system comments them on the newest task, and you stop — do not retry; you are woken once a human confirms or the dependency ships.
 

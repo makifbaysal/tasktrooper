@@ -234,6 +234,18 @@ export const release = {
     recutLabel: "{version} nunca se desplegó",
     recutRelease: "Volver a crear",
   },
+  cutProposal: {
+    title: "Release propuesto",
+    body: "El release engineer preparó este release a partir de {count} tareas con merge. No sale nada hasta que lo revises y lo cortes.",
+    review: "Revisar y cortar",
+    dismiss: "Descartar",
+    dismissedToast: "Propuesta descartada",
+    dismissFailed: "No se pudo descartar la propuesta",
+    dismissed: "Esta propuesta se descartó. El borrador sigue abierto.",
+    cut: "Cortado como {version} — {status}.",
+    gone: "Este release ya no existe.",
+    inline: "El release engineer propone {version}",
+  },
   cutDialog: {
     title: "Crear release",
     description: "Elige la versión y revisa las notas antes de crear este release.",

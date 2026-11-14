@@ -51,6 +51,7 @@ export const chatArea: ChatAreaDict = {
         attached: "doküman ekledi",
         linked: "ilişkilendirdi",
         deleted: "sildi",
+        proposed: "önerildi",
       },
       entity: {
         board_task: "Task",
@@ -59,6 +60,7 @@ export const chatArea: ChatAreaDict = {
         acceptance_criterion: "Kabul kriteri",
         initiative_project: "Proje",
         repository: "Repo",
+        release: "Release",
       },
     },
     plan: {

@@ -238,6 +238,18 @@ export const release = {
     recutLabel: "{version} never deployed",
     recutRelease: "Re-cut",
   },
+  cutProposal: {
+    title: "Release proposed",
+    body: "The release engineer prepared this release from {count} merged tasks. Nothing ships until you review and cut it.",
+    review: "Review and cut",
+    dismiss: "Dismiss",
+    dismissedToast: "Proposal dismissed",
+    dismissFailed: "Could not dismiss the proposal",
+    dismissed: "This proposal was dismissed. The draft is still open.",
+    cut: "Cut as {version} — {status}.",
+    gone: "This release no longer exists.",
+    inline: "Release engineer proposes {version}",
+  },
   cutDialog: {
     title: "Cut release",
     description: "Pick the version and review the notes before cutting this release.",

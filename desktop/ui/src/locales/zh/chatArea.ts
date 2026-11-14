@@ -48,6 +48,7 @@ export const chatArea = {
         attached: "附加到",
         linked: "关联了",
         deleted: "删除了",
+        proposed: "已提议",
       },
       entity: {
         board_task: "任务",
@@ -56,6 +57,7 @@ export const chatArea = {
         acceptance_criterion: "验收标准",
         initiative_project: "项目",
         repository: "仓库",
+        release: "发布",
       },
     },
     plan: {

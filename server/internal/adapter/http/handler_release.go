@@ -36,6 +36,7 @@ type ReleaseService interface {
 	// (rollback_allowed, rollback_refusal); List and Get answer it already.
 	Annotate(ctx context.Context, r domain.Release) domain.Release
 	DismissRollbackProposal(ctx context.Context, releaseID uuid.UUID) (domain.Release, error)
+	DismissCutProposal(ctx context.Context, releaseID uuid.UUID) (domain.Release, error)
 }
 
 // errReleaseConfirmMismatch matches the wording of deployops.ErrConfirmMismatch
@@ -66,6 +67,7 @@ func (h *Handler) registerReleaseRoutes(app fiber.Router) {
 	app.Post("/v1/releases/:releaseId/finish", h.FinishRelease)
 	app.Post("/v1/releases/:releaseId/rollback", h.RollbackRelease)
 	app.Post("/v1/releases/:releaseId/rollback-proposal/dismiss", h.DismissRollbackProposal)
+	app.Post("/v1/releases/:releaseId/cut-proposal/dismiss", h.DismissCutProposal)
 	app.Post("/v1/components/:componentId/smoke-checks/test", h.TestComponentSmokeChecks)
 }
 
@@ -420,4 +422,19 @@ func (h *Handler) TestComponentSmokeChecks(c *fiber.Ctx) error {
 		results = []domain.SmokeResult{}
 	}
 	return c.JSON(fiber.Map{"base_url": baseURL, "results": results})
+}
+
+// DismissCutProposal — POST /v1/releases/:releaseId/cut-proposal/dismiss
+// Declines the cut the release engineer proposed for a draft; nothing was
+// shipped by the proposal, so no confirmation is asked for.
+func (h *Handler) DismissCutProposal(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "releaseId")
+	if err != nil {
+		return badRequest(c, "invalid release id")
+	}
+	updated, err := h.releaseSvc.DismissCutProposal(h.enrichContext(c), id)
+	if err != nil {
+		return releaseErr(c, err)
+	}
+	return c.JSON(updated)
 }

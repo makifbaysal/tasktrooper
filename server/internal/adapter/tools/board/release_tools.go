@@ -38,6 +38,7 @@ const (
 	finishReleaseToolName   = domain.FinishReleaseToolName
 	rollbackReleaseToolName = domain.ReleaseRollbackToolName
 	getDeployImpactToolName = domain.GetDeployImpactToolName
+	proposeCutToolName      = domain.ProposeCutToolName
 )
 
 // releaseNotConfigured is the shared refusal every release tool gives when the
@@ -205,6 +206,63 @@ func (t *deployReleaseTool) Execute(ctx context.Context, arguments string) domai
 		return toolError(deployReleaseToolName, err.Error())
 	}
 	return toolJSON(deployReleaseToolName, map[string]any{"release": updated, "next": deployReleaseNextKey.Render(struct{}{})})
+}
+
+// ---------------------------------------------------------- propose_release_cut
+
+type proposeCutTool struct{ kit *ToolKit }
+
+func newProposeCutTool(kit *ToolKit) port.ToolExecutor { return &proposeCutTool{kit: kit} }
+
+func (t *proposeCutTool) Name() string { return proposeCutToolName }
+
+func (t *proposeCutTool) Definition() domain.ToolDefinition {
+	return domain.ToolDefinition{
+		Type: "function",
+		Function: domain.FunctionDefinition{
+			Name: proposeCutToolName,
+			Parameters: map[string]interface{}{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]interface{}{
+					"task_id": taskRefProperty,
+					"version": map[string]interface{}{"type": "string"},
+					"notes":   map[string]interface{}{"type": "string"},
+				},
+			},
+		},
+	}
+}
+
+// The result's top-level id, title and repository_id are what the chat's
+// action ledger reads to show the proposal as a card a person approves from.
+func (t *proposeCutTool) Execute(ctx context.Context, arguments string) domain.ToolResult {
+	var args struct {
+		TaskID  string `json:"task_id"`
+		Version string `json:"version"`
+		Notes   string `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+		return toolError(proposeCutToolName, fmt.Sprintf("invalid arguments: %v", err))
+	}
+	if t.kit.Releases == nil {
+		return releaseNotConfigured(proposeCutToolName)
+	}
+	rel, res := t.kit.resolveRelease(ctx, proposeCutToolName, args.TaskID)
+	if res != nil {
+		return *res
+	}
+	updated, err := t.kit.Releases.ProposeCut(ctx, rel.ID, domain.ReleaseActorAgent, domain.ReleaseCutRequest{Version: args.Version, Notes: args.Notes})
+	if err != nil {
+		return toolError(proposeCutToolName, err.Error())
+	}
+	return toolJSON(proposeCutToolName, map[string]any{
+		"id":            updated.ID,
+		"title":         updated.CutProposal.Version,
+		"repository_id": updated.RepositoryID,
+		"release":       updated,
+		"next":          proposeCutNextKey.Render(struct{}{}),
+	})
 }
 
 // ---------------------------------------------------------------- watch_release

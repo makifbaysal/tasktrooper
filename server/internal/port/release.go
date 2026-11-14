@@ -51,4 +51,10 @@ type ReleaseStore interface {
 	// records the dismissal, in one statement; false when the release holds
 	// no proposal of that instant any more (one replaced or cleared it).
 	DismissRollbackProposal(ctx context.Context, id uuid.UUID, proposedAt time.Time, d domain.RollbackDismissal) (bool, error)
+	// SetCutProposal stores (nil clears) a draft release's cut proposal, out
+	// of band from Update like SetRollbackProposal and without moving
+	// updated_at. A proposal is stored only on a draft
+	// (domain.ErrReleaseWrongStatus otherwise); Update clears it when the
+	// release leaves draft. A missing release is domain.ErrReleaseNotFound.
+	SetCutProposal(ctx context.Context, id uuid.UUID, p *domain.CutProposal) error
 }

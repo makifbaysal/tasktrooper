@@ -44,6 +44,7 @@ tool_policy:
         - finish_release
         - rollback_release
         - get_deploy_impact
+        - propose_release_cut
         - get_deploy_logs
         - list_incidents
         - get_incident

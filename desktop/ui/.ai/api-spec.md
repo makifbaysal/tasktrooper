@@ -477,6 +477,7 @@ repository's name (same guardrail as the deploy-target rollback endpoints).
 - `POST /v1/releases/{releaseId}/rollback-proposal/dismiss` — no body → `Release` with
   `rollback_proposal` null and `rollback_dismissal` set (`api.dismissRollbackProposal`; an empty
   answer is applied locally).
+- `POST /v1/releases/{releaseId}/cut-proposal/dismiss` — no body → `Release` with `cut_proposal` cleared (the cut the release engineer prepared for a draft; nothing shipped, the draft stays open).
 - `POST /v1/repositories/{id}/tasks/{taskId}/before-deploy/confirm` — no body. Stamps
   `before_deploy_confirmed_at` and, when the task sits in `done`, wakes the release engineer
   immediately. Driven by `TaskDetailDrawer`'s before-deploy Confirm button

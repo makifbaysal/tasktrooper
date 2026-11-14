@@ -234,6 +234,18 @@ export const release = {
     recutLabel: "{version} 从未部署",
     recutRelease: "重新定版",
   },
+  cutProposal: {
+    title: "已提议发布",
+    body: "发布工程师根据 {count} 个已合并的任务准备了此发布。在你审阅并切出之前不会发布任何内容。",
+    review: "审阅并切出",
+    dismiss: "忽略",
+    dismissedToast: "提议已忽略",
+    dismissFailed: "无法忽略该提议",
+    dismissed: "该提议已被忽略。草稿仍然开放。",
+    cut: "已切出为 {version} — {status}。",
+    gone: "此发布已不存在。",
+    inline: "发布工程师提议 {version}",
+  },
   cutDialog: {
     title: "定版发布",
     description: "定版前请选择版本号并检查发布说明。",

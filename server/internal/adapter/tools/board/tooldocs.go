@@ -60,6 +60,7 @@ func init() {
 		finishReleaseToolName,
 		rollbackReleaseToolName,
 		getDeployImpactToolName,
+		proposeCutToolName,
 	} {
 		prompt.Define[struct{}]("tool."+name, struct{}{})
 	}

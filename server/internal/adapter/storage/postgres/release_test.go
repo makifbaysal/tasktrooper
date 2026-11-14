@@ -659,6 +659,40 @@ func (s *ReleaseStoreSuite) TestARollbackProposalIsWrittenOnlyByItsOwnStatement(
 	s.ErrorIs(s.store.SetRollbackProposal(s.ctx, uuid.New(), proposal), domain.ErrReleaseNotFound)
 }
 
+func (s *ReleaseStoreSuite) TestACutProposalLivesOnlyOnADraftAndCuttingClearsIt() {
+	task := s.newTask(domain.TaskColumnDone)
+	created, err := s.store.Create(s.ctx, domain.Release{
+		RepositoryID: s.repoID, ComponentID: &s.compID, Mode: domain.DeliveryBatch,
+		Executor: domain.ExecutorGitHubActions, Status: domain.ReleaseDraft, Profile: testProfile(),
+	}, []uuid.UUID{task.ID})
+	s.Require().NoError(err)
+
+	proposal := &domain.CutProposal{ProposedAt: time.Now().UTC().Truncate(time.Millisecond),
+		By: domain.ReleaseActorAgent, Version: "1.4.0", Notes: "Two fixes"}
+	s.Require().NoError(s.store.SetCutProposal(s.ctx, created.ID, proposal))
+
+	stale := created
+	stale.Notes = "a merge joined"
+	_, err = s.store.Update(s.ctx, stale, domain.ReleaseDraft)
+	s.Require().NoError(err)
+	reread, err := s.store.Get(s.ctx, created.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(reread.CutProposal, "a stale copy's Update keeps it")
+	s.Equal("1.4.0", reread.CutProposal.Version)
+	s.Equal("Two fixes", reread.CutProposal.Notes)
+	s.Equal(domain.ReleaseActorAgent, reread.CutProposal.By)
+
+	reread.Status, reread.Version = domain.ReleasePending, "1.4.0"
+	cut, err := s.store.Update(s.ctx, reread, domain.ReleaseDraft)
+	s.Require().NoError(err)
+	s.Nil(cut.CutProposal, "cutting the release answers its proposal")
+
+	s.ErrorIs(s.store.SetCutProposal(s.ctx, created.ID, proposal), domain.ErrReleaseWrongStatus,
+		"a cut release takes no proposal")
+	s.Require().NoError(s.store.SetCutProposal(s.ctx, created.ID, nil))
+	s.ErrorIs(s.store.SetCutProposal(s.ctx, uuid.New(), proposal), domain.ErrReleaseNotFound)
+}
+
 func (s *ReleaseStoreSuite) TestADismissalClearsOnlyTheProposalItAnswersAndFinishingClearsTheRest() {
 	task := s.newTask(domain.TaskColumnDone)
 	created, err := s.store.Create(s.ctx, domain.Release{

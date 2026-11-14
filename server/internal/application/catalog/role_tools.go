@@ -151,6 +151,7 @@ var (
 		domain.FinishReleaseToolName,
 		domain.ReleaseRollbackToolName,
 		domain.GetDeployImpactToolName,
+		domain.ProposeCutToolName,
 	}
 )
 

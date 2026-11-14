@@ -191,6 +191,16 @@ func (f *fakeReleaseService) DismissRollbackProposal(ctx context.Context, id uui
 	return f.Annotate(ctx, r), nil
 }
 
+func (f *fakeReleaseService) DismissCutProposal(ctx context.Context, id uuid.UUID) (domain.Release, error) {
+	r, ok := f.releases[id]
+	if !ok {
+		return domain.Release{}, domain.ErrReleaseNotFound
+	}
+	r.CutProposal = nil
+	f.releases[id] = r
+	return f.Annotate(ctx, r), nil
+}
+
 // newReleaseTestApp builds a fiber app with the release routes backed by a
 // fakeReleaseService and a real repository.Service (constructed with every
 // optional dependency nil — Get/withGitWarning tolerate that, see
@@ -815,4 +825,23 @@ func TestDismissingARollbackProposalNeedsNoConfirm(t *testing.T) {
 	resp, err = app.Test(httptest.NewRequest("POST", "/v1/releases/not-a-uuid/rollback-proposal/dismiss", nil))
 	require.NoError(t, err)
 	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestDismissCutProposalClearsItAndKeepsTheDraft(t *testing.T) {
+	r := domain.Release{ID: uuid.New(), Status: domain.ReleaseDraft, Mode: domain.DeliveryBatch,
+		CutProposal: &domain.CutProposal{By: domain.ReleaseActorAgent, Version: "1.4.0"}}
+	app, _, svc := newReleaseTestApp(t, r)
+
+	resp, err := app.Test(httptest.NewRequest("POST", "/v1/releases/"+r.ID.String()+"/cut-proposal/dismiss", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	var got domain.Release
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+	assert.Nil(t, got.CutProposal)
+	assert.Equal(t, domain.ReleaseDraft, got.Status)
+	assert.Nil(t, svc.releases[r.ID].CutProposal)
+
+	resp, err = app.Test(httptest.NewRequest("POST", "/v1/releases/"+uuid.New().String()+"/cut-proposal/dismiss", nil))
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
 }
