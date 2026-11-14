@@ -84,7 +84,7 @@ describe("DeliveryCard", () => {
     renderCard({ ...baseComponent, delivery: { override: profile, confidence: "exact" } });
     expect(screen.getByText("Set by you")).toBeInTheDocument();
     expect(screen.queryByText("Delivery not confirmed")).not.toBeInTheDocument();
-    expect(screen.getByText("On merge")).toBeInTheDocument();
+    expect(screen.getByText("On every merge")).toBeInTheDocument();
   });
 
   it("shows a confidence badge and no warning for a high-confidence detection", () => {

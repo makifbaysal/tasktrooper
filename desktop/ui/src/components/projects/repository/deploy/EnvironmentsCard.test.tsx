@@ -187,7 +187,7 @@ describe("EnvironmentsCard", () => {
       [account],
       { delivery },
     );
-    expect(screen.getByText("Deploy: On merge · Vercel")).toBeInTheDocument();
+    expect(screen.getByText("Deploy: On every merge · Vercel")).toBeInTheDocument();
   });
 
   it("does not show a deploy badge when delivery mode is none", () => {
