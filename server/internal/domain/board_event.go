@@ -227,6 +227,7 @@ type ActivityItem struct {
 	RepositoryID uuid.UUID       `json:"repository_id,omitempty"`
 	TaskID       uuid.UUID       `json:"task_id,omitempty"`
 	AgentID      *uuid.UUID      `json:"agent_id,omitempty"`
+	SessionID    *uuid.UUID      `json:"session_id,omitempty"`
 	Status       string          `json:"status,omitempty"`
 	Summary      string          `json:"summary,omitempty"`
 	EventType    string          `json:"event_type,omitempty"`

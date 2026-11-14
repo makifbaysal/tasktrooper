@@ -57,6 +57,19 @@ type PendingSessionTurn struct {
 	ResumeAt  time.Time
 }
 
+// ChatActivityEntry is one agent-authored chat message surfaced on the
+// activity feed — the workspace.Service.ListActivity "chat_message" source,
+// distinct from SessionMessage because the feed never needs tool calls or
+// attachments, only who said what and where.
+type ChatActivityEntry struct {
+	ID        uuid.UUID
+	SessionID uuid.UUID
+	AgentID   uuid.UUID
+	TaskID    *uuid.UUID
+	Content   string
+	CreatedAt time.Time
+}
+
 type SessionMessage struct {
 	ID            uuid.UUID             `json:"id"`
 	SessionID     uuid.UUID             `json:"session_id"`

@@ -320,6 +320,10 @@ func (s *Service) ListByAgent(ctx context.Context, agentID uuid.UUID, limit, off
 	return s.store.ListByAgent(ctx, agentID, limit, offset)
 }
 
+func (s *Service) ListRecentChatMessages(ctx context.Context, limit int) ([]domain.ChatActivityEntry, error) {
+	return s.store.ListRecentChatMessages(ctx, limit)
+}
+
 func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy) (resp domain.AgentResponse, err error) {
 	sess, err := s.store.Get(ctx, sessionID)
 	if err != nil {

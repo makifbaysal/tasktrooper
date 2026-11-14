@@ -39,6 +39,10 @@ type SessionStore interface {
 	ParkPendingTurn(ctx context.Context, sessionID uuid.UUID, req domain.SessionMessageRequest, policy domain.ToolPolicy, resumeAt time.Time) error
 	// Atomically unparks one expired chat turn, oldest park first.
 	TakePendingSessionTurn(ctx context.Context, now time.Time) (domain.PendingSessionTurn, bool, error)
+	// ListRecentChatMessages feeds the activity stream: the most recent
+	// assistant-authored messages from every agent-owned session (never an
+	// ungrouped one, agent_id IS NULL).
+	ListRecentChatMessages(ctx context.Context, limit int) ([]domain.ChatActivityEntry, error)
 }
 
 // SessionActionStore persists the board records an agent touched inside a chat

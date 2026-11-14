@@ -342,7 +342,7 @@ func (h *Handler) ListActivity(c *fiber.Ctx) error {
 			limit = n
 		}
 	}
-	items, err := h.workspaceSvc.ListActivity(h.enrichContext(c), h.boardEvents, h.taskRuns, limit)
+	items, err := h.workspaceSvc.ListActivity(h.enrichContext(c), h.boardEvents, h.taskRuns, h.sessionSvc, limit)
 	if err != nil {
 		return internalError(c, err)
 	}

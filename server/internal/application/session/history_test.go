@@ -55,6 +55,9 @@ func (s *stubSessionStore) ParkPendingTurn(context.Context, uuid.UUID, domain.Se
 func (s *stubSessionStore) TakePendingSessionTurn(context.Context, time.Time) (domain.PendingSessionTurn, bool, error) {
 	return domain.PendingSessionTurn{}, false, nil
 }
+func (s *stubSessionStore) ListRecentChatMessages(context.Context, int) ([]domain.ChatActivityEntry, error) {
+	return nil, nil
+}
 
 type stubActionStore struct {
 	actions []domain.SessionAction
