@@ -157,6 +157,9 @@ type TaskComment struct {
 	// its current name on old comments.
 	AuthorName  string  `json:"author_name,omitempty"`
 	ActorUserID *string `json:"actor_user_id,omitempty"`
+	// Resolved at read time from the attachment-link table; empty/nil for
+	// every comment created before that table existed.
+	Attachments []AttachmentMeta `json:"attachments,omitempty"`
 }
 
 // ChangeRequestCommentPrefix marks a task comment as a change the stakeholder
@@ -181,6 +184,9 @@ type CreateTaskCommentRequest struct {
 	Content    string `json:"content"`
 	AuthorType string `json:"author_type,omitempty"`
 	AuthorID   string `json:"author_id,omitempty"`
+	// AttachmentIDs are already-uploaded binary attachments (POST
+	// /v1/attachments) to link to the comment once it is created.
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 	// Informational comments are recorded and shown but wake no agent: a note
 	// that lands after the run it describes would otherwise start another
 	// one. Never read from a request body.

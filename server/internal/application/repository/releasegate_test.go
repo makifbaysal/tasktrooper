@@ -350,7 +350,7 @@ func (f *fakeReleaseComments) Create(_ context.Context, c domain.TaskComment) (d
 	return c, nil
 }
 func (f *fakeReleaseComments) ListByTask(context.Context, uuid.UUID) ([]domain.TaskComment, error) {
-	return nil, nil
+	return f.comments, nil
 }
 
 const (

@@ -22,6 +22,18 @@ type Message struct {
 	// provider whose TOOL messages are text-only must drop those visibly,
 	// never silently.
 	Images []ToolResultImage `json:"images,omitempty"`
+	// Files is the human's non-image attachments on a RoleUser message. Kept
+	// apart from Images because a direct-API provider turns Images into a
+	// real multimodal image block — doing that to a PDF would break the call.
+	Files []AttachedFile `json:"files,omitempty"`
+}
+
+// AttachedFile is one non-image attachment on a RoleUser message. Data is
+// base64 without a data: URI prefix; MediaType is the MIME type.
+type AttachedFile struct {
+	Filename  string `json:"filename"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type ToolCall struct {

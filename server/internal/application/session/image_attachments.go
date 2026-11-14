@@ -15,6 +15,10 @@ const maxLLMImagesPerRequest = 6
 
 const maxLLMImageBytes = 5 << 20
 
+const maxLLMFilesPerRequest = 6
+
+const maxLLMFileBytes = 5 << 20
+
 func attachImageAttachments(ctx context.Context, store AttachmentLinker, rows []domain.SessionMessage, history []domain.Message) {
 	if store == nil || len(rows) == 0 || len(rows) != len(history) {
 		return
@@ -44,23 +48,28 @@ func attachImageAttachments(ctx context.Context, store AttachmentLinker, rows []
 		meta  domain.AttachmentMeta
 	}
 
-	picks := make([]pick, 0, maxLLMImagesPerRequest)
-	for i := len(rows) - 1; i >= 0 && len(picks) < maxLLMImagesPerRequest; i-- {
+	imagePicks := make([]pick, 0, maxLLMImagesPerRequest)
+	filePicks := make([]pick, 0, maxLLMFilesPerRequest)
+	for i := len(rows) - 1; i >= 0 && (len(imagePicks) < maxLLMImagesPerRequest || len(filePicks) < maxLLMFilesPerRequest); i-- {
 		if rows[i].Role != domain.RoleUser {
 			continue
 		}
 		for _, meta := range metas[rows[i].ID] {
-			if len(picks) >= maxLLMImagesPerRequest {
-				break
-			}
-			if !strings.HasPrefix(meta.ContentType, "image/") || meta.SizeBytes > maxLLMImageBytes {
+			if strings.HasPrefix(meta.ContentType, "image/") {
+				if meta.SizeBytes > maxLLMImageBytes || len(imagePicks) >= maxLLMImagesPerRequest {
+					continue
+				}
+				imagePicks = append(imagePicks, pick{index: i, meta: meta})
 				continue
 			}
-			picks = append(picks, pick{index: i, meta: meta})
+			if meta.SizeBytes > maxLLMFileBytes || len(filePicks) >= maxLLMFilesPerRequest {
+				continue
+			}
+			filePicks = append(filePicks, pick{index: i, meta: meta})
 		}
 	}
 
-	for _, p := range picks {
+	for _, p := range imagePicks {
 		att, err := store.Get(ctx, p.meta.ID)
 		if err != nil {
 			log.Warn().Err(err).Str("attachment_id", p.meta.ID.String()).
@@ -71,6 +80,23 @@ func attachImageAttachments(ctx context.Context, store AttachmentLinker, rows []
 			continue
 		}
 		history[p.index].Images = append(history[p.index].Images, domain.ToolResultImage{
+			MediaType: p.meta.ContentType,
+			Data:      base64.StdEncoding.EncodeToString(att.Data),
+		})
+	}
+
+	for _, p := range filePicks {
+		att, err := store.Get(ctx, p.meta.ID)
+		if err != nil {
+			log.Warn().Err(err).Str("attachment_id", p.meta.ID.String()).
+				Msg("chat file attachment unreadable, skipping it")
+			continue
+		}
+		if len(att.Data) == 0 {
+			continue
+		}
+		history[p.index].Files = append(history[p.index].Files, domain.AttachedFile{
+			Filename:  p.meta.Filename,
 			MediaType: p.meta.ContentType,
 			Data:      base64.StdEncoding.EncodeToString(att.Data),
 		})

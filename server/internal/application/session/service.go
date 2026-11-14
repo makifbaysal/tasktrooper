@@ -419,6 +419,10 @@ func (s *Service) SendMessage(ctx context.Context, sessionID uuid.UUID, req doma
 
 	workspacePolicy := domain.EnsureAskUserTool(effectivePolicy)
 
+	if !domain.RequiresHostExecutor(agentProvider) {
+		inlineTextFileAttachments(history)
+	}
+
 	switch {
 	case domain.RequiresHostExecutor(agentProvider):
 		resp, err = s.runHostExecutedTurn(runCtx, sess, hostTurn{

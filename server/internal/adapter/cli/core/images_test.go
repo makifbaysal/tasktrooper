@@ -67,6 +67,99 @@ func TestStageImagesWithoutImagesIsANoop(t *testing.T) {
 	}
 }
 
+func TestStageImagesWritesNonImageFilesWithOriginalName(t *testing.T) {
+	pdf := []byte("%PDF-1.4 fake")
+	history := []domain.Message{
+		{Role: domain.RoleUser, Content: "what does this say?", Files: []domain.AttachedFile{
+			{Filename: "report.pdf", MediaType: "application/pdf", Data: base64.StdEncoding.EncodeToString(pdf)},
+		}},
+	}
+
+	staged := StageImages(history)
+	defer staged.Cleanup()
+
+	if len(history[0].Files) != 1 {
+		t.Fatalf("caller's history was modified: %+v", history[0])
+	}
+	msg := staged.History[0]
+	if len(msg.Files) != 0 {
+		t.Fatalf("staged message still carries raw files")
+	}
+	note := staged.LastUserNote()
+	if note == "" || !strings.Contains(msg.Content, note) {
+		t.Fatalf("no file note on the message: %q", msg.Content)
+	}
+
+	var path string
+	for _, line := range strings.Split(note, "\n") {
+		if strings.HasPrefix(line, "- ") {
+			path = strings.TrimPrefix(line, "- ")
+		}
+	}
+	if !strings.HasSuffix(path, "report.pdf") {
+		t.Fatalf("original filename lost: %q", path)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(pdf) {
+		t.Fatalf("staged file %q = %q, %v", path, got, err)
+	}
+
+	staged.Cleanup()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("cleanup left %q behind", path)
+	}
+}
+
+func TestStageImagesSanitizesTraversalInFilename(t *testing.T) {
+	history := []domain.Message{
+		{Role: domain.RoleUser, Content: "hi", Files: []domain.AttachedFile{
+			{Filename: "../../etc/passwd", MediaType: "text/plain", Data: base64.StdEncoding.EncodeToString([]byte("x"))},
+		}},
+	}
+
+	staged := StageImages(history)
+	defer staged.Cleanup()
+
+	note := staged.LastUserNote()
+	var path string
+	for _, line := range strings.Split(note, "\n") {
+		if strings.HasPrefix(line, "- ") {
+			path = strings.TrimPrefix(line, "- ")
+		}
+	}
+	if strings.Contains(path, "..") {
+		t.Fatalf("path traversal was not sanitized: %q", path)
+	}
+	if !strings.HasSuffix(path, "passwd") {
+		t.Fatalf("base name lost: %q", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("sanitized file was not written: %v", err)
+	}
+}
+
+func TestStageImagesKeepsImagesWorkingAlongsideFiles(t *testing.T) {
+	png := []byte("\x89PNG fake")
+	history := []domain.Message{
+		{Role: domain.RoleUser, Content: "look and read", Images: []domain.ToolResultImage{
+			{MediaType: "image/png", Data: base64.StdEncoding.EncodeToString(png)},
+		}, Files: []domain.AttachedFile{
+			{Filename: "notes.txt", MediaType: "text/plain", Data: base64.StdEncoding.EncodeToString([]byte("hi"))},
+		}},
+	}
+
+	staged := StageImages(history)
+	defer staged.Cleanup()
+
+	msg := staged.History[0]
+	if len(msg.Images) != 0 || len(msg.Files) != 0 {
+		t.Fatalf("staged message still carries raw attachments: %+v", msg)
+	}
+	if !strings.Contains(msg.Content, ".png") || !strings.Contains(msg.Content, "notes.txt") {
+		t.Fatalf("expected both an image and a file note: %q", msg.Content)
+	}
+}
+
 func TestLastUserNoteOnlyForTheNewestUserMessage(t *testing.T) {
 	img := []domain.ToolResultImage{{MediaType: "image/jpeg", Data: base64.StdEncoding.EncodeToString([]byte("jpg"))}}
 	history := []domain.Message{

@@ -2291,7 +2291,54 @@ func (s *Service) ListComments(ctx context.Context, repositoryID, taskID uuid.UU
 	if err != nil {
 		return nil, err
 	}
+	s.enrichCommentAttachments(ctx, comments)
 	return comments, nil
+}
+
+// enrichCommentAttachments fills in Attachments for every comment that has
+// one; a comment created before migration 206 simply has none.
+func (s *Service) enrichCommentAttachments(ctx context.Context, comments []domain.TaskComment) {
+	if s.attachments == nil || len(comments) == 0 {
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(comments))
+	for _, c := range comments {
+		ids = append(ids, c.ID)
+	}
+	metas, err := s.attachments.ListMetaByCommentIDs(ctx, ids)
+	if err != nil || len(metas) == 0 {
+		return
+	}
+	for i := range comments {
+		if a, ok := metas[comments[i].ID]; ok {
+			comments[i].Attachments = a
+		}
+	}
+}
+
+// linkCommentAttachments links already-uploaded attachments to a just-created
+// comment, returning the metas for the response; an unparseable or unknown id
+// is skipped rather than failing the whole comment.
+func (s *Service) linkCommentAttachments(ctx context.Context, commentID uuid.UUID, attachmentIDs []string) []domain.AttachmentMeta {
+	if s.attachments == nil || len(attachmentIDs) == 0 {
+		return nil
+	}
+	var metas []domain.AttachmentMeta
+	for _, raw := range attachmentIDs {
+		id, err := uuid.Parse(strings.TrimSpace(raw))
+		if err != nil {
+			continue
+		}
+		meta, err := s.attachments.GetMeta(ctx, id)
+		if err != nil {
+			continue
+		}
+		if err := s.attachments.LinkComment(ctx, commentID, id); err != nil {
+			continue
+		}
+		metas = append(metas, meta)
+	}
+	return metas
 }
 
 func (s *Service) AddComment(ctx context.Context, repositoryID, taskID uuid.UUID, req domain.CreateTaskCommentRequest) (domain.TaskComment, error) {
@@ -2324,6 +2371,7 @@ func (s *Service) AddComment(ctx context.Context, repositoryID, taskID uuid.UUID
 	if err != nil {
 		return domain.TaskComment{}, err
 	}
+	comment.Attachments = s.linkCommentAttachments(ctx, comment.ID, req.AttachmentIDs)
 	payload := map[string]interface{}{
 		"comment_id":  comment.ID.String(),
 		"content":     comment.Content,
