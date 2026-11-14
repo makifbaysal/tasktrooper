@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
-import type { Agent, Role } from "@/api";
-import { agentInitials, productManagerIds, resolveLeadAgent } from "@/lib/leadAgent";
+import { describe, expect, it, vi } from "vitest";
+import type { Agent, AttachmentMeta, Role } from "@/api";
+import { agentInitials, productManagerIds, resolveLeadAgent, startLeadConversation } from "@/lib/leadAgent";
+
+const { createSession } = vi.hoisted(() => ({ createSession: vi.fn() }));
+vi.mock("@/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api")>();
+  return { ...actual, api: { ...actual.api, createSession } };
+});
 
 const agent = (id: string, extra: Partial<Agent> = {}): Agent =>
   ({ id, name: id, enabled: true, catalog_slug: undefined, ...extra }) as Agent;
@@ -73,5 +79,21 @@ describe("productManagerIds", () => {
   it("falls back to the catalog product-manager when roles are unavailable", () => {
     const agents = [agent("x"), agent("pm", { catalog_slug: "product-manager" })];
     expect(productManagerIds(agents, null)).toEqual(["pm"]);
+  });
+});
+
+describe("startLeadConversation", () => {
+  it("carries pending attachments into the new session as router state", async () => {
+    createSession.mockReset().mockResolvedValue({ id: "s-1" });
+    const navigate = vi.fn();
+    const attachments: AttachmentMeta[] = [
+      { id: "att-1", filename: "shot.png", content_type: "image/png", size_bytes: 10 } as AttachmentMeta,
+    ];
+
+    await startLeadConversation(navigate, "pm", "hello", "title", [], attachments);
+
+    expect(navigate).toHaveBeenCalledWith("/agents/pm/chat/s-1", {
+      state: { autoSend: "hello", autoSendMentions: [], autoSendAttachments: attachments },
+    });
   });
 });

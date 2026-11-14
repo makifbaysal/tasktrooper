@@ -81,6 +81,9 @@ export function AgentChatPage() {
   const autoSendMentions: MessageMention[] = Array.isArray(location.state?.autoSendMentions)
     ? location.state.autoSendMentions
     : [];
+  const autoSendAttachments: AttachmentMeta[] = Array.isArray(location.state?.autoSendAttachments)
+    ? location.state.autoSendAttachments
+    : [];
   const workspace = useWorkspaceOutlet();
   const isLead = !!agentId && workspace?.leadAgent?.id === agentId;
   const team = useMemo(
@@ -604,6 +607,7 @@ export function AgentChatPage() {
     // handleSend reads the picked entities from this ref and keeps those whose
     // @Name is still in the text, exactly as for a message typed here.
     selectedMentionsRef.current = autoSendMentions;
+    if (autoSendAttachments.length > 0) setPendingAttachments(autoSendAttachments);
     void handleSend({ content: autoSend });
     window.history.replaceState({ ...(window.history.state ?? {}), usr: null }, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; the key ref guards re-sends

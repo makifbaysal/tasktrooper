@@ -380,6 +380,17 @@ describe("AgentChatPage lead agent", () => {
     expect(sendSessionMessageWithRecovery.mock.calls[0][2].mentions).toEqual([repo]);
   });
 
+  it("keeps attachments handed over with autoSend visible as pending, not lost", async () => {
+    const attachment = { id: "att-1", filename: "shot.png", content_type: "image/png", size_bytes: 10 };
+    renderChatPage({
+      pathname: "/agents/agent-1/chat/session-1",
+      state: { autoSend: "look at this", autoSendAttachments: [attachment] },
+    });
+
+    await waitFor(() => expect(sendSessionMessageWithRecovery).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTitle("shot.png")).toBeInTheDocument();
+  });
+
   it("gives the lead its own header but a normal chat page — the welcome lives on /home", async () => {
     renderInWorkspace("agent-1");
 
