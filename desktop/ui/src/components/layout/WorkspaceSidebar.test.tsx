@@ -21,7 +21,7 @@ const pm = makeAgent("pm", "Product Manager");
 const dev = makeAgent("dev", "Developer");
 const qa = makeAgent("qa", "QA Engineer");
 
-function renderSidebar(leadAgent: Agent | null, unread: string[] = []) {
+function renderSidebar(leadAgent: Agent | null, unreadCounts: Record<string, number> = {}) {
   return render(
     <I18nProvider>
       <MemoryRouter>
@@ -35,7 +35,7 @@ function renderSidebar(leadAgent: Agent | null, unread: string[] = []) {
           mobileOpen={false}
           onMobileClose={() => {}}
           onRefresh={() => {}}
-          unreadAgentIds={new Set(unread)}
+          unreadCounts={unreadCounts}
         />
       </MemoryRouter>
     </I18nProvider>,
@@ -65,9 +65,19 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("team editor open")).toBeTruthy();
   });
 
-  it("shows an unread dot on a team member", () => {
-    renderSidebar(pm, ["dev"]);
-    expect(screen.getAllByTitle(/.+/).filter((el) => el.className.includes("bg-primary"))).toHaveLength(1);
+  it("shows an unread count badge on a team member, not a count-less dot", () => {
+    renderSidebar(pm, { dev: 3 });
+    expect(screen.getByText("3")).toBeTruthy();
+  });
+
+  it("caps the badge at 9+ for a large unread count", () => {
+    renderSidebar(pm, { dev: 12 });
+    expect(screen.getByText("9+")).toBeTruthy();
+  });
+
+  it("shows no badge for an agent with no unread count", () => {
+    renderSidebar(pm, { dev: 0 });
+    expect(screen.queryByText("0")).toBeNull();
   });
 
   it("falls back to the flat agent list without a lead", () => {

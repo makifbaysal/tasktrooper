@@ -1,12 +1,17 @@
-import type { ActivityItem, BoardTask } from "@/api";
+import type { Agent, ActivityItem, BoardTask } from "@/api";
 import { analysisReviewPath } from "@/lib/analysis-review";
 
 export interface NotificationItem {
   id: string;
   taskId: string;
   agentId?: string;
-  kind: "comment" | "review" | "uat" | "decision" | "question";
-  title: string;
+  sessionId?: string;
+  kind: "comment" | "chat" | "review" | "uat" | "decision" | "question";
+  /** Set for "comment"/"chat": the sender's name, shown instead of a generic icon+title. */
+  authorName?: string;
+  /** Set for "review"/"uat"/"decision"/"question": a `t()` key + its `{task}` interpolation, resolved at render time so this stays a pure, localization-free function. */
+  titleKey?: string;
+  titleVars?: Record<string, string | number>;
   body: string;
   createdAt: string;
   /** Overrides the default `/board?task=<id>` destination — an analysis_questions park routes to the report instead of a chat that does not exist. */
@@ -57,11 +62,35 @@ function compareByCreatedAtDesc(a: NotificationItem, b: NotificationItem): numbe
  * without importing across the Electron/browser boundary — the two packages
  * do not share code (see A-16 spec, option #1).
  */
-export function toNotificationItems(activity: ActivityItem[], tasks: BoardTask[]): NotificationItem[] {
+export function toNotificationItems(
+  activity: ActivityItem[],
+  tasks: BoardTask[],
+  agents: Agent[] = [],
+): NotificationItem[] {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
   const result: NotificationItem[] = [];
 
   for (const item of activity) {
+    if (item.kind === "chat_message") {
+      if (!item.agent_id) continue;
+      result.push({
+        id: item.id,
+        taskId: item.task_id ?? "",
+        agentId: item.agent_id,
+        sessionId: item.session_id,
+        kind: "chat",
+        authorName: agentById.get(item.agent_id)?.name ?? "An agent",
+        body: truncate(item.summary ?? ""),
+        createdAt: item.created_at,
+        path:
+          item.session_id
+            ? `/agents/${encodeURIComponent(item.agent_id)}/chat/${encodeURIComponent(item.session_id)}`
+            : undefined,
+      });
+      continue;
+    }
+
     if (item.kind !== "board_event") continue;
     const task = item.task_id ? taskById.get(item.task_id) : undefined;
     const label = task?.key ?? "A task";
@@ -75,8 +104,8 @@ export function toNotificationItems(activity: ActivityItem[], tasks: BoardTask[]
         taskId: item.task_id ?? "",
         agentId: agentIdForItem(item, tasks),
         kind: "comment",
-        title: `${label} — New comment`,
-        body: truncate(`${authorName}: ${content}`),
+        authorName,
+        body: truncate(content),
         createdAt: item.created_at,
       });
       continue;
@@ -90,23 +119,24 @@ export function toNotificationItems(activity: ActivityItem[], tasks: BoardTask[]
         agentId: agentIdForItem(item, tasks),
         body: truncate(task?.title ?? ""),
         createdAt: item.created_at,
+        titleVars: { task: label },
       };
       if (toColumn === "analiz_review") {
-        result.push({ ...base, kind: "review", title: `${label} — Ready for your review` });
+        result.push({ ...base, kind: "review", titleKey: "frame.layout.header.notificationCenter.items.review" });
       } else if (toColumn === "human_uat") {
-        result.push({ ...base, kind: "uat", title: `${label} — Awaiting your UAT` });
+        result.push({ ...base, kind: "uat", titleKey: "frame.layout.header.notificationCenter.items.uat" });
       } else if (toColumn === "blocked") {
         if (task?.blocked_resource === "analysis_questions") {
           result.push({
             ...base,
             kind: "question",
-            title: `${label} — Open questions need your answer`,
+            titleKey: "frame.layout.header.notificationCenter.items.question",
             path: task.repository_id ? analysisReviewPath(task.repository_id, task.id) : undefined,
           });
         } else if (task?.blocked_resource === "human_decision") {
-          result.push({ ...base, kind: "decision", title: `${label} — Needs your decision` });
+          result.push({ ...base, kind: "decision", titleKey: "frame.layout.header.notificationCenter.items.decision" });
         } else if (task?.blocked_question) {
-          result.push({ ...base, kind: "question", title: `${label} — An agent has a question` });
+          result.push({ ...base, kind: "question", titleKey: "frame.layout.header.notificationCenter.items.question" });
         }
       }
     }
