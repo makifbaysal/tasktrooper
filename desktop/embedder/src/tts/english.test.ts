@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { applyStress, cardinalWords, EnglishG2P, letterToSound, ordinalWords, split, yearWords, type LexiconData } from "./english.js";
 
 /**
@@ -138,9 +138,15 @@ describe("the pieces", () => {
  * do not change the reading.
  */
 const fullLexicon = path.resolve(import.meta.dirname, "../../../.cache/voice/misaki_us.json.gz");
+// The full dictionary is a build download, absent on a fresh checkout (and in
+// CI): the comparison runs only where it has been fetched. A skipped describe
+// still runs its body, so nothing may be read before the check.
+const cases = JSON.parse(readFileSync(path.join(import.meta.dirname, "testdata/english.json"), "utf8")) as { text: string; ps: string }[];
 describe.skipIf(!existsSync(fullLexicon))("EnglishG2P against misaki", () => {
-  const full = new EnglishG2P(JSON.parse(gunzipSync(readFileSync(fullLexicon)).toString("utf8")) as LexiconData, false);
-  const cases = JSON.parse(readFileSync(path.join(import.meta.dirname, "testdata/english.json"), "utf8")) as { text: string; ps: string }[];
+  let full: EnglishG2P;
+  beforeAll(() => {
+    full = new EnglishG2P(JSON.parse(gunzipSync(readFileSync(fullLexicon)).toString("utf8")) as LexiconData, false);
+  });
   it.each(cases.map((c) => [c.text, c.ps]))("reads %j as misaki does", (text, ps) => {
     expect(full.phonemize(text)).toBe(ps);
   });

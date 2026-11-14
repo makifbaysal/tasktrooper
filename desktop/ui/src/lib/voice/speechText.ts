@@ -49,7 +49,11 @@ function speakLine(line: string): string {
   // Asides in brackets are for reading, not for hearing.
   s = s.replace(/\s*\([^()]*\)/g, "");
   s = s.replace(/\s*\[[^\][]*\]/g, "");
-  s = s.replace(/<[^>]+>/g, "");
+  // Tags are dropped until none is left: one pass can leave a new one behind ("<<b>x>").
+  for (let prev = ""; prev !== s; ) {
+    prev = s;
+    s = s.replace(/<[^<>]*>/g, "");
+  }
   s = s.replace(EMOJI, "");
   s = s.replace(/[#*_`|<>{}[\]\\^]/g, " ");
   s = s.replace(/\s+/g, " ").replace(/\s+([.,;:!?…])/g, "$1").trim();
