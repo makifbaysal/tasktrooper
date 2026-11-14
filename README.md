@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="A CSV-export request typed to the product-manager agent becomes card T-9 with its assumptions and acceptance criteria; after 'Looks good, go ahead' the backend-developer agent picks it up, then the card sits in Code Review with every criterion ticked by Dev and the security agent and system architect reviewing." width="100%">
+  <img src="docs/assets/demo.gif" alt="A CSV-export request typed to the product-manager agent on Home becomes task T-2 with its assumptions, scope and acceptance criteria; after 'Looks good, go ahead' the backend-developer agent picks it up on the board and its live activity shows the tests written first, then the card moves to Code Review where the system architect and security agent review it." width="100%">
 </p>
 # TaskTrooper
 
@@ -61,6 +61,19 @@ carries on from where it stopped instead of starting over.
   the same wall. Then the task continues by itself. Claude Code resumes the
   parked session (`--resume`), so the agent keeps what it already read and
   wrote.
+- Every run leaves a trace in the task: what the agent read, changed and ran,
+  checked against git. One click, after a preview, undoes a run's work behind
+  a backup branch, or reverts it once merged.
+- Every task keeps its review history: each review and QA round, who reviewed,
+  what they found and what became of it, and what each reviewer did and did
+  not cover. A "Needs your review" card lists what wants a person's eyes.
+- Previews per task. A task's pull request opens its hosted preview (Vercel)
+  when one is ready; otherwise the task runs locally, each task on its own
+  port, so two tasks of the same project can be previewed side by side. Moving
+  a task to another column stops only that task's preview.
+- When QA can't verify something because the environment lacks it (an
+  integration, a credential, a device), the task waits for you instead of
+  bouncing between QA and the developer.
 
 ### Role agents
 
@@ -96,6 +109,26 @@ about a specific task.
   install. A developer on Claude Code, a reviewer on the Cursor CLI, a QA agent
   on OpenCode and an API-only agent on Gemini can all work the same board, each
   in its own session.
+
+### Talk to your agents
+
+- Chat with any agent on Home, from the header's quick ask, or about a
+  specific task. Paste or attach files and screenshots, and @-tag agents,
+  projects and repositories; attached images reach agents on every CLI.
+- Voice chat in English or Turkish: the reply is spoken as it streams and you
+  interrupt by talking. Speech runs on your machine; pick the voice model and
+  voice in Settings → Voice.
+- The PM opens one task per feature, repository and role, with a description,
+  acceptance criteria and an assignee, and nothing starts until you approve.
+
+### Audience research
+
+- Synthetic personas written from a project's brief. Run a study on them
+  (interviews, a landing page test, message testing or an A/B test), read the
+  report and export it as one HTML file, or talk to any persona one to one.
+- When a request depends on how people react (a price, a paid feature, copy,
+  onboarding), the PM offers an audience test before opening the work.
+- Run a finished study again after a change and see what moved.
 
 ### Self-evolution
 
@@ -167,6 +200,15 @@ Agents rewrite their own playbooks from how their work actually went.
 - **Mobile releases:** connect App Store Connect and Google Play and promote
   builds through internal, external and production channels. QA can drive iOS
   simulators (macOS only) and Android emulators on this machine through Appium.
+- **Releases:** one release at a time per component, so two deploys of the
+  same service never overlap; the release engineer can propose a batch release
+  for you to approve.
+- **Telemetry:** Operations shows services, endpoints, traces, logs, errors,
+  incidents, monitors, deploys and SLOs, and the release engineer handles the
+  incidents it raises.
+- **Remote access:** reach this computer from the TaskTrooper mobile app
+  through a Cloudflare Tunnel or ngrok tunnel you control; pair a phone with a
+  QR code.
 - **Usage:** token usage per model and per day.
 
 ### First run
@@ -335,7 +377,7 @@ Four tools that also put coding agents to work for you. They stop at the pull re
 | QA | A QA agent that cannot pass a task without running something: real requests, headless browser, iOS/Android simulators | Whatever the agent runs; embedded browser | None built in | None | Review against your rules; agents can check your Chrome tabs |
 | After merge | Deploy recipes, production checks, rollback, incidents from Alertmanager/Sentry/webhooks, App Store and Play releases | None | None | None | None |
 | Agent runtimes | Claude Code, Cursor, Antigravity, OpenCode as local processes; OpenAI, Anthropic, Gemini, Groq or any OpenAI-compatible API | 30+ agent CLIs | Claude Code, Codex, Cursor, OpenCode, Grok, Pi and other ACP agents | Claude Code, Codex, OpenCode, Gemini CLI | Claude Code, Codex, Gemini, Kimi CLI and API providers |
-| Remote access | None; nothing hosted | SSH hosts, remote server, iOS/Android through a relay | Several machines, bb connect, Tailscale, iOS | Closed-source plugin | Phone, browser and Chrome through a relay; Docker |
+| Remote access | Mobile app through a tunnel you run (Cloudflare Tunnel or ngrok); nothing hosted | SSH hosts, remote server, iOS/Android through a relay | Several machines, bb connect, Tailscale, iOS | Closed-source plugin | Phone, browser and Chrome through a relay; Docker |
 | Storage | Embedded Postgres in the app's data directory | SQLite | SQLite | SQLite under `~/.modula` | Encrypted SQLite in the project folder |
 | Interface | Desktop app (macOS, Windows, Linux) | Desktop app plus mobile apps | Desktop, web, CLI, iOS | Desktop app and CLI | Desktop app, phone, Chrome extension |
 | License and price | Apache-2.0, free | MIT, free | MIT, free | Elastic License 2.0, free | Proprietary; free tier, €49 and €99 per month |
