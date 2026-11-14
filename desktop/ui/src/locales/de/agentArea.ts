@@ -327,7 +327,7 @@ export const agentArea = {
         label: "Nachricht an {name}",
         placeholder: "Feature anfragen, Bug melden oder Fragen zum Board stellen…",
         send: "Senden",
-        hint: "Enter zum Senden · Shift+Enter für eine neue Zeile",
+        hint: "Enter zum Senden · Shift+Enter für eine neue Zeile · @ zum Markieren eines Agenten, Projekts oder Repositorys",
         failed: "Unterhaltung konnte nicht gestartet werden",
         suggestions: {
           board: {

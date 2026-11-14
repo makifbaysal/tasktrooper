@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Users } from "lucide-react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import type { MessageMention } from "@/api";
+import type { AttachmentMeta, MessageMention } from "@/api";
 import { LeadWelcome } from "@/components/chat/LeadWelcome";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -22,7 +22,7 @@ export function HomePage() {
   const lead = ctx?.leadAgent ?? null;
 
   if (lead) {
-    const start = async (message: string, mentions: MessageMention[]) => {
+    const start = async (message: string, mentions: MessageMention[], attachments: AttachmentMeta[]) => {
       if (starting) return;
       setStarting(true);
       try {
@@ -32,6 +32,7 @@ export function HomePage() {
           message,
           t("agentArea.chat.newSessionTitle", { name: lead.name }),
           mentions,
+          attachments,
         );
         logEvent("chat_start", { agent_role: agentRole(lead), source: "home_quick_ask" });
       } catch {

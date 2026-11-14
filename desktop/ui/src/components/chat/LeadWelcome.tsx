@@ -1,18 +1,22 @@
 import { useRef, useState, type FormEvent } from "react";
 import { ArrowUp } from "lucide-react";
-import type { Agent, MessageMention } from "@/api";
+import { toast } from "sonner";
+import type { Agent, AttachmentMeta, MessageMention } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
+import { AttachmentDropzone, uploadAttachmentFiles } from "@/components/attachments/AttachmentDropzone";
+import { AttachmentList } from "@/components/attachments/AttachmentList";
 import { LeadFlowSteps } from "@/components/chat/LeadFlowSteps";
 import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MentionTextarea } from "@/components/chat/MentionTextarea";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/hooks/useI18n";
 
 interface LeadWelcomeProps {
   agent: Agent;
   /** `mentions` are the @-picked entities whose @Name is still in the message. */
-  onSubmit: (message: string, mentions: MessageMention[]) => void | Promise<void>;
+  onSubmit: (message: string, mentions: MessageMention[], attachments: AttachmentMeta[]) => void | Promise<void>;
   busy?: boolean;
   mentionOptions?: MentionOption[];
 }
@@ -23,7 +27,26 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickedRef = useRef<MentionOption[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<AttachmentMeta[]>([]);
+  const [pastingAttachment, setPastingAttachment] = useState(false);
   const canSend = value.trim() !== "" && !busy;
+
+  // Paste-into-textarea attach: files on the clipboard become pending
+  // attachments through the same upload path the dropzone button uses.
+  const handlePasteFiles = async (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length === 0) return;
+    e.preventDefault();
+    setPastingAttachment(true);
+    try {
+      const metas = await uploadAttachmentFiles(files);
+      setPendingAttachments((prev) => [...prev, ...metas]);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("frame.ui.attachments.uploadFailed"));
+    } finally {
+      setPastingAttachment(false);
+    }
+  };
 
   const submit = () => {
     const text = value.trim();
@@ -32,7 +55,8 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
     const mentions = pickedRef.current
       .filter((m) => fold.includes(`@${m.name.toLocaleLowerCase("tr")}`))
       .map(({ kind, id, name }) => ({ kind, id, name }));
-    void onSubmit(text, mentions);
+    void onSubmit(text, mentions, pendingAttachments);
+    setPendingAttachments([]);
   };
 
   const handleSubmit = (event: FormEvent) => {
@@ -69,8 +93,18 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
         </div>
 
         <div className="flex flex-col gap-3">
-          <Card className="p-3">
+          <Card className="p-3" onPaste={(e) => void handlePasteFiles(e)}>
             <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+              {(pendingAttachments.length > 0 || pastingAttachment) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <AttachmentList
+                    compact
+                    attachments={pendingAttachments}
+                    onRemove={(meta) => setPendingAttachments((prev) => prev.filter((a) => a.id !== meta.id))}
+                  />
+                  {pastingAttachment && <Spinner size="sm" />}
+                </div>
+              )}
               <MentionTextarea
                 ref={textareaRef}
                 value={value}
@@ -90,9 +124,16 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
               />
               <div className="flex items-center justify-between gap-3">
                 <p className="text-caption text-muted-foreground">{t("agentArea.chat.lead.welcome.hint")}</p>
-                <Button type="submit" size="icon" disabled={!canSend} aria-label={t("agentArea.chat.lead.welcome.send")}>
-                  <ArrowUp className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <AttachmentDropzone
+                    variant="button"
+                    disabled={busy || pastingAttachment}
+                    onUploaded={(metas) => setPendingAttachments((prev) => [...prev, ...metas])}
+                  />
+                  <Button type="submit" size="icon" disabled={!canSend} aria-label={t("agentArea.chat.lead.welcome.send")}>
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </form>
           </Card>
@@ -108,7 +149,7 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
                   size="sm"
                   className="rounded-full"
                   disabled={busy && send}
-                  onClick={() => (send ? void onSubmit(message, []) : prefill(message))}
+                  onClick={() => (send ? void onSubmit(message, [], []) : prefill(message))}
                 >
                   {t(`agentArea.chat.lead.welcome.suggestions.${key}.label`)}
                 </Button>
