@@ -60,39 +60,82 @@ func TestStartDetectsTheURLTheCommandPrints(t *testing.T) {
 	assert.Contains(t, []domain.LocalPreviewStatus{domain.LocalPreviewStarting, domain.LocalPreviewRunning}, preview.Status)
 
 	require.Eventually(t, func() bool {
-		p, ok := svc.Status(repositoryID)
+		p, ok := svc.Status(repositoryID, taskID)
 		return ok && p.Status == domain.LocalPreviewRunning
 	}, 3*time.Second, 20*time.Millisecond)
 
-	p, ok := svc.Status(repositoryID)
+	p, ok := svc.Status(repositoryID, taskID)
 	require.True(t, ok)
 	assert.Equal(t, "http://localhost:4321/", p.URL)
 	assert.NotEmpty(t, p.LogTail)
 
-	svc.Stop(repositoryID)
-	_, ok = svc.Status(repositoryID)
+	svc.Stop(repositoryID, taskID)
+	_, ok = svc.Status(repositoryID, taskID)
 	assert.False(t, ok, "a stopped preview is no longer the repository's active one")
 }
 
-func TestStartingASecondPreviewReplacesTheFirst(t *testing.T) {
+func TestStartingTheSameTaskAgainReplacesItsPreview(t *testing.T) {
 	svc := newTestService(t, t.TempDir())
-	repositoryID := uuid.New()
-	secondTaskID := uuid.New()
+	repositoryID, taskID := uuid.New(), uuid.New()
 
-	_, err := svc.Start(context.Background(), repositoryID, uuid.New(), "sleep 30")
+	_, err := svc.Start(context.Background(), repositoryID, taskID, "sleep 30")
+	require.NoError(t, err)
+	first := svc.active[taskID]
+
+	_, err = svc.Start(context.Background(), repositoryID, taskID, "sleep 31")
 	require.NoError(t, err)
 
-	second, err := svc.Start(context.Background(), repositoryID, secondTaskID, "sleep 30")
-	require.NoError(t, err)
-	assert.Equal(t, secondTaskID, second.TaskID)
-
-	p, ok := svc.Status(repositoryID)
+	p, ok := svc.Status(repositoryID, taskID)
 	require.True(t, ok)
-	assert.Equal(t, secondTaskID, p.TaskID, "only the second preview may be the repository's active one")
+	assert.Equal(t, "sleep 31", p.Command)
+	require.Eventually(t, first.exited, 3*time.Second, 20*time.Millisecond, "the task's earlier preview must be stopped")
 
-	svc.Stop(repositoryID)
-	_, ok = svc.Status(repositoryID)
+	svc.Stop(repositoryID, taskID)
+	_, ok = svc.Status(repositoryID, taskID)
 	assert.False(t, ok)
+}
+
+func TestPreviewsOfDifferentTasksInOneRepositoryRunSideBySide(t *testing.T) {
+	svc := newTestService(t, t.TempDir())
+	repositoryID, firstTask, secondTask := uuid.New(), uuid.New(), uuid.New()
+
+	_, err := svc.Start(context.Background(), repositoryID, firstTask, `echo "port=${PORT:-default}"; sleep 30`)
+	require.NoError(t, err)
+	_, err = svc.Start(context.Background(), repositoryID, secondTask, `echo "port=${PORT:-default}"; sleep 30`)
+	require.NoError(t, err)
+	t.Cleanup(svc.Close)
+
+	logOf := func(taskID uuid.UUID) []string {
+		p, ok := svc.Status(repositoryID, taskID)
+		require.True(t, ok)
+		return p.LogTail
+	}
+	require.Eventually(t, func() bool { return len(logOf(firstTask)) > 0 && len(logOf(secondTask)) > 0 },
+		3*time.Second, 20*time.Millisecond)
+	assert.Equal(t, []string{"port=default"}, logOf(firstTask), "the first preview keeps the framework's default port")
+	assert.NotEqual(t, "port=default", logOf(secondTask)[0], "a second preview of the repository gets a port of its own")
+
+	svc.Stop(repositoryID, firstTask)
+	_, ok := svc.Status(repositoryID, firstTask)
+	assert.False(t, ok)
+	p, ok := svc.Status(repositoryID, secondTask)
+	require.True(t, ok, "stopping one task's preview leaves the other running")
+	assert.Equal(t, domain.LocalPreviewStarting, p.Status)
+}
+
+func TestStatusAndStopIgnoreAnotherRepositorysTask(t *testing.T) {
+	svc := newTestService(t, t.TempDir())
+	repositoryID, taskID := uuid.New(), uuid.New()
+
+	_, err := svc.Start(context.Background(), repositoryID, taskID, "sleep 30")
+	require.NoError(t, err)
+	t.Cleanup(svc.Close)
+
+	_, ok := svc.Status(uuid.New(), taskID)
+	assert.False(t, ok)
+	svc.Stop(uuid.New(), taskID)
+	_, ok = svc.Status(repositoryID, taskID)
+	assert.True(t, ok)
 }
 
 func TestAFailedPreviewStaysVisibleUntilCleared(t *testing.T) {
@@ -103,18 +146,18 @@ func TestAFailedPreviewStaysVisibleUntilCleared(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		p, ok := svc.Status(repositoryID)
+		p, ok := svc.Status(repositoryID, taskID)
 		return ok && p.Status == domain.LocalPreviewFailed
 	}, 3*time.Second, 20*time.Millisecond, "a preview that died must still be reported, not vanish")
 
-	p, _ := svc.Status(repositoryID)
+	p, _ := svc.Status(repositoryID, taskID)
 	assert.Equal(t, taskID, p.TaskID)
 	assert.NotEmpty(t, p.Detail)
 	assert.Contains(t, p.LogTail, "Another dev server is already running")
 	assert.Empty(t, loadState(svc.workspaceRoot), "an exited process is never persisted for the next boot to signal")
 
-	svc.Stop(repositoryID)
-	_, ok := svc.Status(repositoryID)
+	svc.Stop(repositoryID, taskID)
+	_, ok := svc.Status(repositoryID, taskID)
 	assert.False(t, ok)
 }
 

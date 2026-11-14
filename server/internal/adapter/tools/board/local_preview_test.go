@@ -38,7 +38,7 @@ func (f *fakeLocalPreviews) Start(_ context.Context, repositoryID, taskID uuid.U
 	return out, nil
 }
 
-func (f *fakeLocalPreviews) Status(uuid.UUID) (domain.LocalPreview, bool) {
+func (f *fakeLocalPreviews) Status(_, taskID uuid.UUID) (domain.LocalPreview, bool) {
 	if len(f.statuses) == 0 {
 		return domain.LocalPreview{}, f.statusOK
 	}
@@ -47,7 +47,10 @@ func (f *fakeLocalPreviews) Status(uuid.UUID) (domain.LocalPreview, bool) {
 		idx = len(f.statuses) - 1
 	}
 	f.statusCall++
-	return f.statuses[idx], true
+	if got := f.statuses[idx]; got.TaskID == taskID {
+		return got, true
+	}
+	return domain.LocalPreview{}, false
 }
 
 func runStartPreviewTool(t *testing.T, fake *fakeLocalPreviews, taskID uuid.UUID) (localPreviewResult, string) {
@@ -110,7 +113,7 @@ func TestStartTaskPreviewStartsWhenNoneIsActive(t *testing.T) {
 	assert.Contains(t, out.Note, "call start_task_preview again")
 }
 
-func TestStartTaskPreviewStartsWhenTheActivePreviewIsAnotherTask(t *testing.T) {
+func TestStartTaskPreviewStartsWhenOnlyAnotherTaskHasAPreview(t *testing.T) {
 	withFastPoll(t)
 	otherTask := uuid.New()
 	fake := &fakeLocalPreviews{
@@ -120,7 +123,7 @@ func TestStartTaskPreviewStartsWhenTheActivePreviewIsAnotherTask(t *testing.T) {
 
 	_, _ = runStartPreviewTool(t, fake, uuid.New())
 
-	assert.Equal(t, 1, fake.startCalls, "a preview running someone else's task must be replaced, not reused")
+	assert.Equal(t, 1, fake.startCalls, "another task's preview is never reused for this one")
 }
 
 func TestStartTaskPreviewWaitsForTheURLToAppear(t *testing.T) {

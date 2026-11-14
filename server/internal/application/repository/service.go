@@ -36,10 +36,11 @@ type RevisionNotifier interface {
 }
 
 // LocalPreviewStopper is localpreview.Service's seam here: a task's column
-// change is the one place that must stop a repository's running preview,
+// change is the one place that must stop that task's running preview,
 // however the task got there (human drag, agent move, pipeline release).
+// Other tasks' previews in the same repository keep running.
 type LocalPreviewStopper interface {
-	Stop(repositoryID uuid.UUID)
+	Stop(repositoryID, taskID uuid.UUID)
 }
 
 // ModelRefresher is the project-model service's compat seam for what used to
@@ -1976,7 +1977,7 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 			// Stop can block up to stopGrace waiting for the process group to
 			// exit; UpdateTask is the hot path for every column move (HTTP,
 			// the board runner, pipeline automation), so it must not wait on it.
-			go s.localPreview.Stop(repositoryID)
+			go s.localPreview.Stop(repositoryID, updated.ID)
 		}
 
 		if s.workOrderSweeper != nil &&

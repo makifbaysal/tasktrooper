@@ -12,6 +12,7 @@ const stateFileName = "localpreview-state.json"
 
 type persistedEntry struct {
 	RepositoryID uuid.UUID `json:"repository_id"`
+	TaskID       uuid.UUID `json:"task_id,omitempty"`
 	PID          int       `json:"pid"`
 	// Command is what the next boot checks the pid still runs before
 	// signalling it; an entry without one is never signalled.

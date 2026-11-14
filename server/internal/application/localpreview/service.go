@@ -61,7 +61,9 @@ type Service struct {
 	git           GitWorkspacer
 	workspaceRoot string
 
-	mu     sync.Mutex
+	mu sync.Mutex
+	// active is keyed by task: each task's branch has its own checkout, so
+	// previews of different tasks in one repository run side by side.
 	active map[uuid.UUID]*process
 }
 
@@ -222,13 +224,24 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 	if s.active == nil {
 		s.active = make(map[uuid.UUID]*process)
 	}
-	if existing, ok := s.active[repositoryID]; ok {
+	if existing, ok := s.active[taskID]; ok {
 		s.stopLocked(existing)
 	}
 
 	cmd := shellCommand(command)
 	cmd.Dir = workspacePath
 	cmd.Env = os.Environ()
+	if s.repositoryHasLiveLocked(repositoryID) {
+		// Another task's preview of this repository most likely holds the
+		// framework's default port; hand this one a free port of its own
+		// through the variables the detected commands read. The first preview
+		// keeps the default, which is what OAuth callbacks and CORS lists name.
+		port, err := freePort()
+		if err != nil {
+			return domain.LocalPreview{}, fmt.Errorf("pick a port for the preview: %w", err)
+		}
+		cmd.Env = append(cmd.Env, portEnv(port)...)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -258,11 +271,11 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 	}
 	p.tree = tree
 
-	s.active[repositoryID] = p
+	s.active[taskID] = p
 	s.persistLocked()
 	go pumpLines(stdout, p.appendLine)
 	go pumpLines(stderr, p.appendLine)
-	go s.wait(repositoryID, p)
+	go s.wait(taskID, p)
 
 	log.Info().Str("repository_id", repositoryID.String()).Str("task_id", taskID.String()).
 		Str("branch", branch).Str("command", command).Msg("local preview started")
@@ -278,7 +291,7 @@ func pumpLines(r io.Reader, onLine func(string)) {
 	}
 }
 
-func (s *Service) wait(repositoryID uuid.UUID, p *process) {
+func (s *Service) wait(taskID uuid.UUID, p *process) {
 	err := p.cmd.Wait()
 	close(p.done)
 	p.mu.Lock()
@@ -292,34 +305,38 @@ func (s *Service) wait(repositoryID uuid.UUID, p *process) {
 	default:
 		p.setDone(domain.LocalPreviewFailed, "the command exited on its own")
 	}
-	// A failed preview stays the repository's active one, so the reviewer
-	// reads why it died instead of the panel quietly falling back to its
-	// start button; the next Start or Stop clears it.
+	// A failed preview stays the task's active one, so the reviewer reads
+	// why it died instead of the panel quietly falling back to its start
+	// button; the next Start or Stop clears it.
 	s.mu.Lock()
-	if s.active[repositoryID] == p {
+	if s.active[taskID] == p {
 		if stopped {
-			delete(s.active, repositoryID)
+			delete(s.active, taskID)
 		}
 		s.persistLocked()
 	}
 	s.mu.Unlock()
 }
 
-func (s *Service) Status(repositoryID uuid.UUID) (domain.LocalPreview, bool) {
+// Status is the task's own preview. repositoryID must match the one it was
+// started under, so a route scoped to one repository never reads another's.
+func (s *Service) Status(repositoryID, taskID uuid.UUID) (domain.LocalPreview, bool) {
 	s.mu.Lock()
-	p, ok := s.active[repositoryID]
+	p, ok := s.active[taskID]
 	s.mu.Unlock()
-	if !ok {
+	if !ok || p.preview.RepositoryID != repositoryID {
 		return domain.LocalPreview{}, false
 	}
 	return p.snapshot(), true
 }
 
-func (s *Service) Stop(repositoryID uuid.UUID) {
+// Stop stops the task's preview and leaves every other task's alone.
+func (s *Service) Stop(repositoryID, taskID uuid.UUID) {
 	s.mu.Lock()
-	p, ok := s.active[repositoryID]
+	p, ok := s.active[taskID]
+	ok = ok && p.preview.RepositoryID == repositoryID
 	if ok {
-		delete(s.active, repositoryID)
+		delete(s.active, taskID)
 		s.persistLocked()
 	}
 	s.mu.Unlock()
@@ -329,17 +346,31 @@ func (s *Service) Stop(repositoryID uuid.UUID) {
 }
 
 func (s *Service) stopLocked(p *process) {
-	delete(s.active, p.preview.RepositoryID)
+	delete(s.active, p.preview.TaskID)
 	go s.stopProcess(p)
+}
+
+func (s *Service) repositoryHasLiveLocked(repositoryID uuid.UUID) bool {
+	for _, p := range s.active {
+		if p.preview.RepositoryID == repositoryID && !p.exited() {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) persistLocked() {
 	entries := make([]persistedEntry, 0, len(s.active))
-	for repositoryID, p := range s.active {
+	for taskID, p := range s.active {
 		if p.cmd.Process == nil || p.exited() {
 			continue
 		}
-		entries = append(entries, persistedEntry{RepositoryID: repositoryID, PID: p.cmd.Process.Pid, Command: p.preview.Command})
+		entries = append(entries, persistedEntry{
+			RepositoryID: p.preview.RepositoryID,
+			TaskID:       taskID,
+			PID:          p.cmd.Process.Pid,
+			Command:      p.preview.Command,
+		})
 	}
 	saveState(s.workspaceRoot, entries)
 }

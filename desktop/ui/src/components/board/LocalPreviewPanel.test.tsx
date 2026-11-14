@@ -99,6 +99,13 @@ describe("LocalPreviewPanel", () => {
     expect(screen.getByRole("link", { name: /localhost:3000/ })).toHaveAttribute("href", "http://localhost:3000");
   });
 
+  it("asks for this task's own preview", async () => {
+    getLocalPreview.mockResolvedValue({ active: false });
+    renderPanel();
+
+    await waitFor(() => expect(getLocalPreview).toHaveBeenCalledWith("repo-1", "task-1"));
+  });
+
   it("does not open a preview it did not start", async () => {
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     getLocalPreview.mockResolvedValue({ active: true, preview: makePreview({ status: "running", url: "http://localhost:3000" }) });

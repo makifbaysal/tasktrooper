@@ -242,7 +242,6 @@ export const boardArea = {
       previewRunning: "Läuft",
       previewFailed: "Fehlgeschlagen",
       previewStartFailed: "Die lokale Preview konnte nicht gestartet werden",
-      previewOtherTask: "Für eine andere Aufgabe läuft bereits eine Preview",
       analizReviewHeading: "Ihr Review ist gefragt",
       analizReviewApprove: "Freigeben",
       analizReviewDecline: "Ablehnen",

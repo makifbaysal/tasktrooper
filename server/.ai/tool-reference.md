@@ -134,7 +134,7 @@ The bypass secret reaches only this tool's output: the HTTP API returns `bypass_
 
 ### `start_task_preview`
 
-Starts (or reuses) the task branch's LOCAL preview (`internal/adapter/tools/board/local_preview.go`, backed by `application/localpreview.Service`): checks the branch out into the task workspace, detects a run command, starts it, and returns its `http://localhost` URL — the fallback for a repository with no per-branch Vercel preview and no stage environment. Held by `qa-agent` and `product-manager`; neither has a shell, so this is their only way to launch the product themselves.
+Starts (or reuses) the task branch's LOCAL preview (`internal/adapter/tools/board/local_preview.go`, backed by `application/localpreview.Service`): checks the branch out into the task workspace, detects a run command, starts it, and returns its `http://localhost` URL — the fallback for a repository with no per-branch Vercel preview and no stage environment. Held by `qa-agent` and `product-manager`; neither has a shell, so this is their only way to launch the product themselves. Previews are per task: several tasks of one repository can run at once (a second one gets a free `PORT`/`SERVER_PORT`/`QUARKUS_HTTP_PORT`), and a task's column move stops only its own.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
