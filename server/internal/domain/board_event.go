@@ -80,8 +80,12 @@ const (
 	// default branch and the task goes back for rework.
 	MoveReasonReleaseRolledBack = "release_rolled_back"
 	MoveReasonReconciled        = "reconciled"
-	MoveReasonQuestionAnswered  = "question_answered"
-	MoveReasonQuotaRenewed      = "quota_renewed"
+	// MoveReasonReviewRejectedStalled: a reviewer asked for changes and the
+	// reviewers still to decide could not finish a run, so the round is
+	// closed on the verdict it has.
+	MoveReasonReviewRejectedStalled = "review_rejected_stalled"
+	MoveReasonQuestionAnswered      = "question_answered"
+	MoveReasonQuotaRenewed          = "quota_renewed"
 	// The resume half of quota_renewed's park; it also releases the deploy
 	// watch and work order. Stays "device_free" because rows already carry it
 	// and renaming would rewrite history.

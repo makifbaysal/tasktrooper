@@ -1165,6 +1165,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	}
 
 	criteriaSettled := true
+	reviewStuck := false
 	if resp.Clarification == nil && resp.ResourceBlock == nil {
 		var quotaBlock *domain.QuotaBlock
 		resp, quotaBlock = r.sweepChangeRequests(runCtx, job, agentRec, history, resp, model, upliftedPolicy, seenChangeRequests)
@@ -1175,7 +1176,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		}
 		resp, criteriaSettled, quotaBlock = r.sweepOpenCriteria(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
 		if quotaBlock == nil {
-			quotaBlock = r.sweepReviewVerdict(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
+			reviewStuck, quotaBlock = r.sweepReviewVerdict(runCtx, job, agentRec, history, resp, model, upliftedPolicy)
 		}
 		if quotaBlock != nil {
 			stampToolStats(&run, toolUsage)
@@ -1187,6 +1188,12 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	if !criteriaSettled {
 		run.Status = domain.TaskAgentRunStatusFailed
 		run.Summary = unsettledCriteriaSummary(len(r.openCriteria(runCtx, job)))
+	} else if reviewStuck {
+		run.Status = domain.TaskAgentRunStatusFailed
+		run.Summary = reviewVerdictMissingSummary(job.Task.Column)
+		if lastReviewVerdictAttempt(blocks.prevRuns, run) {
+			r.reportStuckReview(ctx, job)
+		}
 	} else {
 		run.Status = domain.TaskAgentRunStatusCompleted
 		run.Summary = strings.TrimSpace(resp.Message.Content)

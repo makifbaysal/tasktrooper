@@ -28,18 +28,20 @@ type RunEnqueuer interface {
 var _ QADispatcher = (*Dispatcher)(nil)
 
 type Dispatcher struct {
-	board        port.BoardConfigStore
-	events       port.BoardEventStore
-	runs         port.TaskAgentRunStore
-	runner       RunEnqueuer
-	enabled      bool
-	pipelineGate bool
-	notifier     TaskNotifier
-	spans        port.TaskColumnSpanStore
-	workOrder    *WorkOrder
-	reviewLoop   *ReviewLoopGuard
-	workflows    port.WorkflowReader
-	roles        port.RoleResolver
+	board         port.BoardConfigStore
+	events        port.BoardEventStore
+	runs          port.TaskAgentRunStore
+	runner        RunEnqueuer
+	enabled       bool
+	pipelineGate  bool
+	notifier      TaskNotifier
+	spans         port.TaskColumnSpanStore
+	workOrder     *WorkOrder
+	reviewLoop    *ReviewLoopGuard
+	workflows     port.WorkflowReader
+	roles         port.RoleResolver
+	gatePipelines GatePipelineReader
+	quorum        *ReviewQuorum
 	// taskReleasedHook fires for every task.moved event that lands the task
 	// in released — whatever moved it (a release's Finish, openNone, a
 	// human) — unlike the rest of Dispatch it runs even when released is a
@@ -103,6 +105,44 @@ func (d *Dispatcher) SetSpans(spans port.TaskColumnSpanStore) {
 
 func (d *Dispatcher) SetWorkOrder(w *WorkOrder) {
 	d.workOrder = w
+}
+
+// GatePipelineReader answers whether a task's CI already ran, for a
+// re-dispatch no pipeline result will ever follow.
+type GatePipelineReader interface {
+	ListByTask(ctx context.Context, taskID uuid.UUID) ([]domain.TaskPipeline, error)
+}
+
+func (d *Dispatcher) SetGatePipelines(r GatePipelineReader) { d.gatePipelines = r }
+
+func (d *Dispatcher) SetReviewQuorum(q *ReviewQuorum) { d.quorum = q }
+
+// The pipeline gate defers a dispatch until CI reports, and CI reports once
+// per push. A reviewer whose run died after that report is re-dispatched by
+// the reconciler with no report left to open the gate, so the gate is read
+// off the pipeline that already ran instead.
+func (d *Dispatcher) gateAlreadyOpen(ctx context.Context, payload map[string]interface{}, taskID uuid.UUID) bool {
+	if d.gatePipelines == nil {
+		return false
+	}
+	if reconciled, _ := payload["reconciled"].(bool); !reconciled {
+		return false
+	}
+	pipelines, err := d.gatePipelines.ListByTask(ctx, taskID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", taskID.String()).Msg("dispatch: reading the task's pipelines failed, leaving the gate closed")
+		return false
+	}
+	var newest *domain.TaskPipeline
+	for i := range pipelines {
+		if isDeployTrigger(pipelines[i].Trigger) {
+			continue
+		}
+		if newest == nil || pipelines[i].CreatedAt.After(newest.CreatedAt) {
+			newest = &pipelines[i]
+		}
+	}
+	return newest != nil && domain.PipelineStatusOpensGate(newest.Status)
 }
 
 func (d *Dispatcher) SetReviewLoopGuard(g *ReviewLoopGuard) {
@@ -194,7 +234,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, input DispatchInput) error {
 		return nil
 	}
 
-	if gateDefers {
+	if gateDefers && !d.gateAlreadyOpen(ctx, payload, input.Task.ID) {
 		return nil
 	}
 	var agentIDs []uuid.UUID
@@ -213,6 +253,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, input DispatchInput) error {
 	actorID := actorAgentIDFromPayload(payload)
 	for _, agentID := range agentIDs {
 		if actorID != uuid.Nil && agentID == actorID {
+			continue
+		}
+		if input.EventType == domain.BoardEventTaskMoved && d.quorum.HasDecided(ctx, input.Task.ID, input.Task.Column, agentID) {
 			continue
 		}
 

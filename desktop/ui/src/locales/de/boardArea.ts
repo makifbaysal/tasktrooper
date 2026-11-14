@@ -193,6 +193,7 @@ export const boardArea = {
         review_loop_parked: "Geparkt: wiederholt ohne menschliches Zutun zur Überarbeitung zurückgeschickt",
         qa_unchanged_reject_parked: "Geparkt: QA hat genau diesen Code bereits abgelehnt, seitdem keine Änderung",
         review_blocked_parked: "Geparkt: der Prüfer konnte es in seiner Umgebung nicht verifizieren",
+        review_rejected_stalled: "Zurückgeschickt: Ein Reviewer verlangte Änderungen und der andere konnte nicht fertig werden",
         push_workflow_scope: "Geparkt: GitHub hat den Push abgelehnt — dem Token fehlt die Berechtigung workflow",
       },
     },

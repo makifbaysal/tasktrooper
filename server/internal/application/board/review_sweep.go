@@ -258,30 +258,30 @@ func (r *Runner) sweepReviewVerdict(
 	resp domain.AgentResponse,
 	model string,
 	policy domain.ToolPolicy,
-) *domain.QuotaBlock {
+) (stuck bool, quota *domain.QuotaBlock) {
 	if resp.Clarification != nil || resp.ResourceBlock != nil {
-		return nil
+		return false, nil
 	}
 	wf := r.workflowFor(ctx, job.Task.TaskType)
 	// No type check on purpose: only a stage whose review verdict sweeps name a pass_to ever sweeps, and analiz_review never carries one.
 	exit, ok := reviewExitColumn(wf, job.Task.Column)
 	if !ok {
-		return nil
+		return false, nil
 	}
 	reader, ok := r.taskUpdater.(taskColumnReader)
 	if !ok {
-		return nil
+		return false, nil
 	}
 	fresh, err := reader.GetTask(ctx, job.RepositoryID, job.Task.ID)
 	if err != nil {
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("review sweep: task re-read failed, leaving the column to the agent")
-		return nil
+		return false, nil
 	}
 	if fresh.Column != job.Task.Column {
-		return nil
+		return false, nil
 	}
 	if r.reviewQuorum.HasDecided(ctx, job.Task.ID, job.Task.Column, job.Run.AgentID) {
-		return nil
+		return false, nil
 	}
 
 	var missing []domain.AcceptanceCriterion
@@ -304,10 +304,10 @@ func (r *Runner) sweepReviewVerdict(
 		agent.WithCLILabel(job.Task.Key+" review-sweep", job.Task.Title))
 	if err != nil {
 		if quotaErr, ok := domain.QuotaBlockOf(err); ok {
-			return quotaErr
+			return false, quotaErr
 		}
 		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("review verdict sweep failed; task stays in its review column")
-		return nil
+		return true, nil
 	}
 	if after, err := reader.GetTask(ctx, job.RepositoryID, job.Task.ID); err == nil && after.Column == job.Task.Column {
 		log.Info().Str("task_id", job.Task.ID.String()).Str("column", string(job.Task.Column)).
@@ -317,19 +317,52 @@ func (r *Runner) sweepReviewVerdict(
 		}
 		moved, quotaErr := r.finalizeReviewVerdict(ctx, job, agentRec, history, headLen, model, policy, exit)
 		if quotaErr != nil {
-			return quotaErr
+			return false, quotaErr
 		}
-		if moved {
-			return nil
-		}
-		if r.taskUpdater != nil {
-			if _, cErr := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
-				AuthorType: "system",
-				Content:    stuckColumnComment(job.Task.Column, exit, r.stuckVerdictNote(ctx, job)),
-			}); cErr != nil {
-				log.Warn().Err(cErr).Str("task_id", job.Task.ID.String()).Msg("review sweep: stuck-column comment failed")
-			}
-		}
+		return !moved, nil
 	}
-	return nil
+	return false, nil
+}
+
+const reviewVerdictMissingMarker = "review verdict not recorded"
+
+func reviewVerdictMissingSummary(column domain.TaskColumn) string {
+	return reviewVerdictMissingSummaryKey.Render(reviewVerdictMissingSummaryInput{Marker: reviewVerdictMissingMarker, Column: string(column)})
+}
+
+func isReviewVerdictMissingRun(run domain.TaskAgentRun) bool {
+	return run.Status == domain.TaskAgentRunStatusFailed && strings.HasPrefix(run.Summary, reviewVerdictMissingMarker)
+}
+
+// A review that ended without a verdict is retried with a fresh run, which
+// gets a fresh tool connection; only the attempt the reconciler will not
+// follow with another one leaves the card to a person.
+func lastReviewVerdictAttempt(prev []domain.TaskAgentRun, current domain.TaskAgentRun) bool {
+	streak := 1
+	for _, run := range prev {
+		if run.ID == current.ID {
+			continue
+		}
+		if run.Status != domain.TaskAgentRunStatusFailed {
+			break
+		}
+		streak++
+	}
+	return streak >= maxConsecutiveFailedRuns
+}
+
+func (r *Runner) reportStuckReview(ctx context.Context, job RunJob) {
+	if r.taskUpdater == nil {
+		return
+	}
+	exit, ok := reviewExitColumn(r.workflowFor(ctx, job.Task.TaskType), job.Task.Column)
+	if !ok {
+		return
+	}
+	if _, err := r.taskUpdater.AddComment(ctx, job.RepositoryID, job.Task.ID, domain.CreateTaskCommentRequest{
+		AuthorType: "system",
+		Content:    stuckColumnComment(job.Task.Column, exit, r.stuckVerdictNote(ctx, job)),
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("review sweep: stuck-column comment failed")
+	}
 }

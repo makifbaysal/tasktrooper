@@ -116,6 +116,41 @@ func (q *ReviewQuorum) HasDecided(ctx context.Context, taskID uuid.UUID, column 
 	return false
 }
 
+// RoundState is the open round of the review column the task sits in: the
+// required reviewers still to decide, and whether one already rejected.
+func (q *ReviewQuorum) RoundState(ctx context.Context, task domain.BoardTask) (pending []uuid.UUID, rejected bool, ok bool) {
+	if q == nil || q.store == nil || !domain.QuorumReviewColumn(task.Column) {
+		return nil, false, false
+	}
+	round, open, err := q.currentRound(ctx, task.ID, task.Column)
+	if err != nil || open == nil {
+		return nil, false, false
+	}
+	required, err := q.store.RequiredReviewers(ctx, string(task.Column), string(task.TaskType))
+	if err != nil || len(required) < 2 {
+		return nil, false, false
+	}
+	decided, err := q.roundVerdicts(ctx, task.ID, round)
+	if err != nil {
+		return nil, false, false
+	}
+	done := make(map[uuid.UUID]bool, len(decided))
+	for _, v := range decided {
+		if v.AgentID != nil {
+			done[*v.AgentID] = true
+		}
+		if v.Verdict == domain.ReviewVerdictReject {
+			rejected = true
+		}
+	}
+	for _, r := range required {
+		if !done[r.ID] {
+			pending = append(pending, r.ID)
+		}
+	}
+	return pending, rejected, true
+}
+
 // Approvers is every reviewer whose latest verdict in the current round of
 // column is an approval.
 func (q *ReviewQuorum) Approvers(ctx context.Context, taskID uuid.UUID, column domain.TaskColumn) []uuid.UUID {

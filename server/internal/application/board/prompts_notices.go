@@ -42,6 +42,10 @@ type stuckVerdictNoteInput struct {
 	Texts string
 }
 
+type reviewVerdictMissingSummaryInput struct{ Marker, Column string }
+
+var reviewVerdictMissingSummaryKey = prompt.Define("notices.review_verdict_missing_summary", reviewVerdictMissingSummaryInput{Marker: "x", Column: "in_qa"})
+
 var stuckVerdictNoteKey = prompt.Define("notices.stuck_verdict_note", stuckVerdictNoteInput{Count: 1, Role: "qa", Texts: "x"})
 
 type stuckColumnCommentInput struct{ Column, Exit, Note string }

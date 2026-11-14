@@ -202,6 +202,7 @@ export const boardArea: BoardAreaDict = {
         review_loop_parked: "Park edildi: insan müdahalesi olmadan tekrar tekrar revizyona gönderildi",
         qa_unchanged_reject_parked: "Park edildi: QA bu kodun aynısını zaten reddetti, o zamandan beri değişiklik yok",
         review_blocked_parked: "Park edildi: inceleyen ajan ortamında doğrulayamadı",
+        review_rejected_stalled: "Geri gönderildi: bir reviewer değişiklik istedi, diğer reviewer çalışmasını tamamlayamadı",
         push_workflow_scope: "Park edildi: GitHub push'u reddetti — token'da workflow yetkisi yok",
       },
     },
