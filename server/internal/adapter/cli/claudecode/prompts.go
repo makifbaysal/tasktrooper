@@ -14,3 +14,5 @@ type continuePromptInput struct{ Task string }
 var continuePromptKey = prompt.Define("cli.claude_continue_prompt", continuePromptInput{Task: "tt-123 Add a link"})
 
 var earlierTurnLabelKey = prompt.Define("cli.claude_earlier_turn_label", struct{}{})
+
+var compactFocusKey = prompt.Define("cli.claude_compact_focus", struct{}{})

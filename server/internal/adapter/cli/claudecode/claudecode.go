@@ -308,6 +308,9 @@ func (e *Executor) Execute(ctx context.Context, req domain.TaskExecution) (domai
 			inv.prompt = continuePrompt(req)
 		}
 		inv.resumeSessionID = req.ResumeSessionID
+		if req.CompactBeforeResume {
+			inv.trace = e.compactBeforeResume(ctx, inv)
+		}
 	}
 
 	s, err := e.spawn(ctx, inv)
