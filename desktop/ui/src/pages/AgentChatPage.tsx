@@ -404,8 +404,12 @@ export function AgentChatPage() {
     // A's reply into session B.
     const stillHere = () => activeSessionIdRef.current === sessionAtSend;
     // Snapshot + clear like the input text: a failed send restores them below
-    // so nothing has to be re-attached from scratch.
-    const attachmentsAtSend = fromQueue ? (options.attachments ?? []) : pendingAttachments;
+    // so nothing has to be re-attached from scratch. An explicit
+    // `options.attachments` (fromQueue, or an override like autoSend) always
+    // wins over the composer's own state — reading `pendingAttachments` here
+    // for those calls would be the state as of this render, not the value a
+    // caller just asked to be set two lines ago in the same synchronous pass.
+    const attachmentsAtSend = options.attachments ?? (ownsComposer ? pendingAttachments : []);
     const attachmentIds = attachmentsAtSend.map((a) => a.id);
     if (ownsComposer) setPendingAttachments([]);
     const abort = new AbortController();
@@ -422,7 +426,7 @@ export function AgentChatPage() {
     try {
       const result = await sendSessionMessageWithRecovery(sessionAtSend, content, {
         fileIds: fromQueue ? (options.fileIds ?? []) : selectedFileIds,
-        attachmentIds: isOverride && !fromQueue ? undefined : attachmentIds,
+        attachmentIds,
         // Off by default, which is what makes the reply stream: the backend
         // refuses to stream an orchestrated turn, so forcing this on meant the
         // web client always waited for one whole answer. iOS has always sent
@@ -607,8 +611,13 @@ export function AgentChatPage() {
     // handleSend reads the picked entities from this ref and keeps those whose
     // @Name is still in the text, exactly as for a message typed here.
     selectedMentionsRef.current = autoSendMentions;
+    // Also shown as a pending chip for the same reason mentions go through a
+    // ref: handleSend is a plain function re-created every render, so the
+    // `setPendingAttachments` below would still be the pre-update value by
+    // the time the call right after it reads `pendingAttachments` — the
+    // attachments have to ride the call's own options instead.
     if (autoSendAttachments.length > 0) setPendingAttachments(autoSendAttachments);
-    void handleSend({ content: autoSend });
+    void handleSend({ content: autoSend, attachments: autoSendAttachments });
     window.history.replaceState({ ...(window.history.state ?? {}), usr: null }, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is recreated every render; the key ref guards re-sends
   }, [autoSend, activeSessionId, loadedSessionId, sending, stopping]);
