@@ -1027,6 +1027,9 @@ func (c *chunkVectorCache) invalidateAll() {
 }
 
 func capChunks(chunks []domain.WorkspaceChunk, topK int) []domain.WorkspaceChunk {
+	if topK <= 0 {
+		return nil
+	}
 	if len(chunks) > topK {
 		return chunks[:topK]
 	}
@@ -1057,13 +1060,15 @@ func fuseRRF(a, b []domain.WorkspaceChunk, topK int) []domain.WorkspaceChunk {
 		entries = append(entries, e)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].score > entries[j].score })
-	if topK > len(entries) {
-		topK = len(entries)
-	}
-	out := make([]domain.WorkspaceChunk, 0, topK)
-	for i := 0; i < topK; i++ {
-		c := entries[i].chunk
-		c.Score = entries[i].score
+	// topK reaches here from a caller's request; bounding the allocation by
+	// what was merged keeps a huge or negative one from sizing it.
+	var out []domain.WorkspaceChunk
+	for i, e := range entries {
+		if i >= topK {
+			break
+		}
+		c := e.chunk
+		c.Score = e.score
 		out = append(out, c)
 	}
 	return out

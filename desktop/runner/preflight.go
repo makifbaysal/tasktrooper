@@ -51,8 +51,7 @@ func withRunnerFields(report json.RawMessage, fields map[string]any) json.RawMes
 		return report
 	}
 	body := bytes.TrimSpace(trimmed[:len(trimmed)-1])
-	out := make([]byte, 0, len(body)+len(extra)+1)
-	out = append(out, body...)
+	out := append([]byte(nil), body...)
 	if body[len(body)-1] != '{' {
 		out = append(out, ',')
 	}

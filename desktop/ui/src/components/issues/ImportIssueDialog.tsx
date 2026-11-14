@@ -45,8 +45,17 @@ interface SearchResult {
 
 const EMPTY_RESULT: SearchResult = { issues: [], loading: false, error: "", notConfigured: false };
 
+// A remote is "git@github.com:o/r.git" or "https://github.com/o/r"; matching
+// the host exactly keeps "github.com.example.org" from counting as GitHub.
 function hasGithubRemote(repo: Repository): boolean {
-  return (repo.remote_url ?? "").includes("github.com");
+  const remote = (repo.remote_url ?? "").trim();
+  const scp = /^[^@/\s]+@([^:/\s]+):/.exec(remote);
+  if (scp) return scp[1].toLowerCase() === "github.com";
+  try {
+    return new URL(remote).hostname.toLowerCase() === "github.com";
+  } catch {
+    return false;
+  }
 }
 
 export function ImportIssueDialog({
