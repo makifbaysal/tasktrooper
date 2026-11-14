@@ -59,6 +59,16 @@ function renderDialog(
   return { onSaved };
 }
 
+function advance(times: number) {
+  for (let i = 0; i < times; i++) fireEvent.click(screen.getByRole("button", { name: "Next" }));
+}
+
+/** Walks an already-answered profile to the last step and saves it. */
+function saveFromStart() {
+  advance(3);
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+}
+
 describe("DeliveryEditDialog", () => {
   beforeEach(() => {
     updateComponentDelivery.mockReset().mockResolvedValue({});
@@ -66,20 +76,22 @@ describe("DeliveryEditDialog", () => {
 
   it("saves a valid on_merge profile as-is", async () => {
     const { onSaved } = renderDialog(onMergeProfile);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    saveFromStart();
     await waitFor(() => expect(updateComponentDelivery).toHaveBeenCalledWith("comp-1", onMergeProfile));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
   it("sends the impact thresholds only when they are set, within the server's limits", async () => {
     renderDialog(onMergeProfile);
+    advance(2);
     fireEvent.change(screen.getByLabelText("Max error rate rise (percentage points)"), { target: { value: "150" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    advance(1);
     expect(await screen.findByText("Max error rate rise must be between 0 and 100 percentage points")).toBeInTheDocument();
-    expect(updateComponentDelivery).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Max error rate rise (percentage points)"), { target: { value: "2.5" } });
     fireEvent.change(screen.getByLabelText("Max p95 latency rise (%)"), { target: { value: "30" } });
+    advance(1);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(updateComponentDelivery).toHaveBeenCalledWith("comp-1", {
@@ -91,9 +103,9 @@ describe("DeliveryEditDialog", () => {
 
   it("rejects dispatch mode with no workflow", async () => {
     renderDialog({ ...onMergeProfile, mode: "dispatch", workflow: "" });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    advance(2);
     expect(await screen.findByText("Dispatch mode needs the deploy workflow's file name")).toBeInTheDocument();
-    expect(updateComponentDelivery).not.toHaveBeenCalled();
+    expect(screen.getByRole("radio", { name: /TaskTrooper starts a GitHub Actions workflow/ })).toBeChecked();
   });
 
   it("rejects a smoke check whose method is not GET or HEAD", async () => {
@@ -103,7 +115,7 @@ describe("DeliveryEditDialog", () => {
       ...onMergeProfile,
       verify: { ...onMergeProfile.verify, smoke: [{ method: "POST", path: "/health" }] },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    advance(3);
     expect(await screen.findByText("Only GET and HEAD may be sent to production")).toBeInTheDocument();
     expect(updateComponentDelivery).not.toHaveBeenCalled();
   });
@@ -113,7 +125,7 @@ describe("DeliveryEditDialog", () => {
       ...onMergeProfile,
       verify: { ...onMergeProfile.verify, smoke: [{ method: "GET", path: "health" }] },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    advance(3);
     // Shown twice now: the dialog's aggregate error list, and inline under
     // the smoke check's own path field.
     expect((await screen.findAllByText("Path must start with / (or be an absolute URL)")).length).toBeGreaterThan(0);
@@ -123,7 +135,7 @@ describe("DeliveryEditDialog", () => {
   it("shows the server's message when the save is rejected", async () => {
     updateComponentDelivery.mockRejectedValue(new Error("workflow is the file's base name"));
     renderDialog(onMergeProfile);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    saveFromStart();
     expect(await screen.findByText("workflow is the file's base name")).toBeInTheDocument();
   });
 
@@ -140,17 +152,65 @@ describe("DeliveryEditDialog", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
   });
 
-  it("defaults a fresh profile to on_merge/vercel when production is on Vercel", () => {
+  it("offers Vercel first for a fresh profile when production is on Vercel", () => {
     renderDialog(null, { production: makeEnv({ provider: "vercel", resource: { kind: "vercel_project", id: "prj_1", name: "pishio-web" } }) });
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("radio", { name: /Every time a task is merged/ }));
+    advance(1);
+    expect(screen.getByRole("radio", { name: /Vercel deploys it/ })).toBeChecked();
     expect(screen.getByText("Vercel project: pishio-web (from the PROD environment)")).toBeInTheDocument();
   });
 
   it("warns, without blocking save, when executor is vercel and production isn't a Vercel project", async () => {
-    const { onSaved } = renderDialog({ ...onMergeProfile, executor: "vercel" });
+    const { onSaved } = renderDialog({ ...onMergeProfile, executor: "vercel", workflow: undefined });
+    advance(1);
     expect(screen.getByText("Bind PROD to a Vercel project, or the deploy can't be tracked.")).toBeInTheDocument();
 
+    advance(2);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateComponentDelivery).toHaveBeenCalled());
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  });
+
+  it("saves 'never' as mode none in two steps, with no deploy fields left over", async () => {
+    renderDialog(onMergeProfile);
+    fireEvent.click(screen.getByRole("radio", { name: /Never/ }));
+    advance(1);
+    expect(screen.getByText("Merging does not deploy anything. A merged task goes straight to Released.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(updateComponentDelivery).toHaveBeenCalledWith("comp-1", {
+        mode: "none",
+        executor: undefined,
+        workflow: undefined,
+        tag_pattern: undefined,
+        local_command: undefined,
+        verify: onMergeProfile.verify,
+        auto_rollback: true,
+      }),
+    );
+  });
+
+  it("saves 'only when I ask' as a batch release cut from a version tag", async () => {
+    renderDialog(null);
+    fireEvent.click(screen.getByRole("radio", { name: /Only when I ask/ }));
+    advance(1);
+    expect(screen.getByRole("radio", { name: /A version tag starts a GitHub Actions workflow/ })).toBeChecked();
+    fireEvent.change(screen.getByLabelText("Tag pattern"), { target: { value: "v{version}" } });
+    advance(2);
+    expect(screen.getByText(/Press "Cut release" there, or ask the release engineer/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(updateComponentDelivery).toHaveBeenCalledWith(
+        "comp-1",
+        expect.objectContaining({ mode: "batch", executor: "github_actions", tag_pattern: "v{version}" }),
+      ),
+    );
+  });
+
+  it("warns that on-push delivery fails when no workflow deploys on push", () => {
+    renderDialog(onMergeProfile);
+    advance(1);
+    expect(screen.getByText("Only pick this if a workflow really deploys on push")).toBeInTheDocument();
   });
 });

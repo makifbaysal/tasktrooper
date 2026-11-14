@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { api, type CloudProviderKind, type Component, type ComponentDelivery, type ComponentEnvironment, type SmokeCheck } from "@/api";
+import { deliverySummary } from "@/components/projects/repository/deploy/deliveryChoice";
 import { DeliveryEditDialog } from "@/components/projects/repository/deploy/DeliveryEditDialog";
 import { ProviderIcon } from "@/components/projects/model/ProviderIcon";
 import { Badge } from "@/components/ui/badge";
@@ -123,6 +124,7 @@ export function DeliveryCard({
 
         {effective ? (
           <>
+            <p className="text-body">{deliverySummary(effective, t)}</p>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={override ? "secondary" : "outline"}>
                 {override ? t("release.delivery.setByYou") : t("release.delivery.detectedBadge", { confidence: t(`release.delivery.confidence.${confidence}`) })}

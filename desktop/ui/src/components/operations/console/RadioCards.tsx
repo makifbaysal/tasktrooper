@@ -13,7 +13,8 @@ interface RadioCardsProps<T extends string> {
   /** The id of the element that names the group. */
   labelledBy: string;
   options: RadioCardOption<T>[];
-  value: T;
+  /** Null while nothing is picked yet. */
+  value: T | null;
   onChange: (value: T) => void;
   disabled?: boolean;
   className?: string;
