@@ -740,6 +740,8 @@ export type DesktopVoiceLanguage = "tr" | "en";
 export interface DesktopVoiceCapabilities {
   listen: Record<DesktopVoiceLanguage, boolean>;
   speak: Record<DesktopVoiceLanguage, boolean>;
+  /** The bundled voice's styles per language, the default first; empty where there is no choice. */
+  speakStyles: Record<DesktopVoiceLanguage, string[]>;
 }
 
 export type DesktopVoiceTranscriptEvent =
@@ -765,7 +767,8 @@ export interface DesktopVoiceHost {
   listenStop(id: string): Promise<void>;
   listenCancel(id: string): Promise<void>;
   onTranscript(cb: (event: DesktopVoiceTranscriptEvent) => void): () => void;
-  speak(lang: DesktopVoiceLanguage, text: string, speed?: number): Promise<{ id: string }>;
+  /** `style` is one of `capabilities().speakStyles[lang]`; left out, the voice's default. */
+  speak(lang: DesktopVoiceLanguage, text: string, speed?: number, style?: string): Promise<{ id: string }>;
   speakCancel(id: string): Promise<void>;
   onAudio(cb: (event: DesktopVoiceAudioEvent) => void): () => void;
 }

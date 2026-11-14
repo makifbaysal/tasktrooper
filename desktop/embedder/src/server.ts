@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { SpeechEngine } from "./tts/speech-worker.js";
+import type { SpeechEngine, SpeechVoice } from "./tts/speech-worker.js";
 
 export interface EmbeddingEngine {
   /** Every input in one call, so the engine can batch them; `promptTokens` comes from the same tokenization. */
@@ -26,10 +26,13 @@ export interface EmbeddingEngine {
  *   GET  /v1/models        so a client that lists models before using one — which
  *                          several OpenAI-compatible clients do at setup — finds
  *                          the model this server actually serves.
- *   POST /v1/audio/speech  the bundled Turkish voice (and at /audio/speech, for
- *                          the same reason). OpenAI's path and request shape,
- *                          but the answer is raw PCM streamed as it is made,
- *                          not an encoded file: see speech().
+ *   POST /v1/audio/speech  the bundled voices, Turkish and English (and at
+ *                          /audio/speech, for the same reason). OpenAI's path
+ *                          and request shape, but the answer is raw PCM
+ *                          streamed as it is made, not an encoded file: see
+ *                          speech().
+ *   GET  /v1/audio/voices  which of them this copy has, at what sample rate,
+ *                          and the English voice's styles.
  *
  * Answers `503` with a small JSON error body until the model is downloaded —
  * never hangs, never crashes the request, because a caller mid-index must see
@@ -68,12 +71,13 @@ interface SpeechRequestBody {
   input?: unknown;
   voice?: unknown;
   speed?: unknown;
+  style?: unknown;
 }
 
-/** The voice's sample rate; every chunk the engine yields is at this rate. */
+/** Every voice a request may name; one this copy has no files for answers 503. */
+export const SPEECH_VOICES: readonly SpeechVoice[] = ["tr", "en"];
+/** EMA Lightning's rate, the Turkish voice. */
 export const SPEECH_SAMPLE_RATE = 48_000;
-/** The one voice there is. */
-export const SPEECH_VOICES: readonly string[] = ["tr"];
 /** A spoken reply, not a document: longer text is refused before any of it is read aloud. */
 export const MAX_SPEECH_CHARS = 4000;
 /** Room for MAX_SPEECH_CHARS with every one of them escaped in JSON. */
@@ -121,10 +125,23 @@ export interface EmbedderServer {
    */
   enableLoading(load?: () => Promise<EmbeddingEngine>): void;
   /**
-   * The voice files are on disk: `/v1/audio/speech` loads the voice with
-   * `load` on its first request. Until this is called that route answers 503.
+   * `voice`'s files are on disk: `/v1/audio/speech` loads it with `load` on
+   * its first request for it. Until this is called, a request for it answers 503.
    */
-  enableSpeech(load: () => Promise<SpeechEngine>): void;
+  enableSpeech(voice: SpeechVoice, load: () => Promise<SpeechEngine>, info: SpeechVoiceInfo): void;
+}
+
+export interface SpeechVoiceInfo {
+  /** Every chunk the engine yields is at this rate. */
+  sampleRate: number;
+  /** The styles a request may name; empty for a voice without them. */
+  styles: readonly string[];
+  defaultStyle?: string;
+}
+
+interface SpeechModel {
+  life: LazyModel<SpeechEngine>;
+  info: SpeechVoiceInfo;
 }
 
 /**
@@ -241,7 +258,7 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
   const idleUnloadMs = options.idleUnloadMs ?? DEFAULT_IDLE_UNLOAD_MS;
   const log = options.log ?? ((message: string) => process.stderr.write(`[embedder] ${message}\n`));
   const embedding = new LazyModel<EmbeddingEngine>("the embedding model", idleUnloadMs, log);
-  const speech = new LazyModel<SpeechEngine>("the voice", idleUnloadMs, log);
+  const speech = new Map<SpeechVoice, SpeechModel>();
 
   const server = createServer((req, res) => {
     handle(req, res, { log, embedding, speech }).catch((err) => {
@@ -264,8 +281,11 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
     enableLoading: (load) => {
       embedding.setLoader(load ?? options.load ?? null);
     },
-    enableSpeech: (load) => {
-      speech.setLoader(load);
+    enableSpeech: (voice, load, info) => {
+      const existing = speech.get(voice);
+      const life = existing?.life ?? new LazyModel<SpeechEngine>(`the ${voice} voice`, idleUnloadMs, log);
+      life.setLoader(load);
+      speech.set(voice, { life, info });
     },
   };
 }
@@ -273,12 +293,13 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
 interface Routes {
   log: (message: string) => void;
   embedding: LazyModel<EmbeddingEngine>;
-  speech: LazyModel<SpeechEngine>;
+  speech: Map<SpeechVoice, SpeechModel>;
 }
 
 const EMBEDDINGS_PATHS = new Set(["/embeddings", "/v1/embeddings"]);
 const MODELS_PATHS = new Set(["/models", "/v1/models"]);
 const SPEECH_PATHS = new Set(["/audio/speech", "/v1/audio/speech"]);
+const VOICES_PATHS = new Set(["/audio/voices", "/v1/audio/voices"]);
 
 async function handle(req: IncomingMessage, res: ServerResponse, routes: Routes): Promise<void> {
   const route = (req.url ?? "").split("?")[0] ?? "";
@@ -294,22 +315,37 @@ async function handle(req: IncomingMessage, res: ServerResponse, routes: Routes)
     return;
   }
 
-  const model = req.method !== "POST" ? null : EMBEDDINGS_PATHS.has(route) ? routes.embedding : SPEECH_PATHS.has(route) ? routes.speech : null;
-  if (!model) {
+  if (req.method === "GET" && VOICES_PATHS.has(route)) {
+    sendJson(res, 200, {
+      voices: SPEECH_VOICES.flatMap((id) => {
+        const model = routes.speech.get(id);
+        if (!model) return [];
+        const { sampleRate, styles, defaultStyle } = model.info;
+        return [{ id, sample_rate: sampleRate, styles, ...(defaultStyle ? { default_style: defaultStyle } : {}) }];
+      }),
+    });
+    return;
+  }
+
+  if (req.method === "POST" && SPEECH_PATHS.has(route)) {
+    await speech(req, res, routes);
+    return;
+  }
+
+  if (req.method !== "POST" || !EMBEDDINGS_PATHS.has(route)) {
     sendJson(
       res,
       404,
-      errorBody("not_found", "This server answers POST /v1/embeddings, POST /v1/audio/speech and GET /v1/models."),
+      errorBody("not_found", "This server answers POST /v1/embeddings, POST /v1/audio/speech, GET /v1/audio/voices and GET /v1/models."),
     );
     return;
   }
 
-  model.begin();
+  routes.embedding.begin();
   try {
-    if (model === routes.speech) await speech(req, res, routes.speech);
-    else await embeddings(req, res, routes.embedding);
+    await embeddings(req, res, routes.embedding);
   } finally {
-    model.end();
+    routes.embedding.end();
   }
 }
 
@@ -360,17 +396,19 @@ async function embeddings(req: IncomingMessage, res: ServerResponse, life: LazyM
 
 /**
  * Speak `input` and stream it back as it is made: 200 with
- * `application/octet-stream`, `X-Sample-Rate: 48000`, and a chunked body of
- * mono float32 little-endian PCM (every platform this ships on is little
- * endian, so the engine's own buffers go out as they are). The first chunk is
- * one second of audio, so playback can start long before the text is done.
+ * `application/octet-stream`, `X-Sample-Rate` (48000 for Turkish, 24000 for
+ * English), and a chunked body of mono float32 little-endian PCM (every
+ * platform this ships on is little endian, so the engine's own buffers go out
+ * as they are). The first chunk is short (a second of Turkish, the first
+ * clause of English), so playback can start long before the text is done.
  *
  * Status is decided before the first byte: a load or inference failure ahead
  * of it is a JSON error like every other route's. A failure after it can only
  * cut the response off, which the client sees as a broken stream rather than
  * a short clip. A client that hangs up stops the generation.
  */
-async function speech(req: IncomingMessage, res: ServerResponse, life: LazyModel<SpeechEngine>): Promise<void> {
+async function speech(req: IncomingMessage, res: ServerResponse, routes: Routes): Promise<void> {
+  const log = routes.log;
   // Refused from the header when it says so, because past the limit the body
   // reader drops the connection and the 413 would never arrive.
   if (Number(req.headers["content-length"] ?? 0) > MAX_SPEECH_BODY_BYTES) {
@@ -381,13 +419,13 @@ async function speech(req: IncomingMessage, res: ServerResponse, life: LazyModel
   try {
     body = await readJsonBody<SpeechRequestBody>(req, MAX_SPEECH_BODY_BYTES);
   } catch (err) {
-    life.log(`rejected a speech request body: ${describe(err)}`);
+    log(`rejected a speech request body: ${describe(err)}`);
     if (err instanceof BodyTooLargeError) sendJson(res, 413, errorBody("too_large", `input must be at most ${MAX_SPEECH_CHARS} characters.`));
     else sendJson(res, 400, errorBody("bad_request", "Request body is not valid JSON."));
     return;
   }
 
-  const { input, voice = "tr", speed = 1 } = body;
+  const { input, voice = "tr", speed = 1, style } = body;
   if (typeof input !== "string" || input.trim() === "") {
     sendJson(res, 400, errorBody("bad_request", "input must be a non-empty string."));
     return;
@@ -396,7 +434,7 @@ async function speech(req: IncomingMessage, res: ServerResponse, life: LazyModel
     sendJson(res, 413, errorBody("too_large", `input must be at most ${MAX_SPEECH_CHARS} characters.`));
     return;
   }
-  if (typeof voice !== "string" || !SPEECH_VOICES.includes(voice)) {
+  if (typeof voice !== "string" || !(SPEECH_VOICES as readonly string[]).includes(voice)) {
     sendJson(res, 400, errorBody("unsupported_voice", `voice must be one of: ${SPEECH_VOICES.join(", ")}.`));
     return;
   }
@@ -404,11 +442,37 @@ async function speech(req: IncomingMessage, res: ServerResponse, life: LazyModel
     sendJson(res, 400, errorBody("bad_request", `speed must be a number from ${MIN_SPEECH_SPEED} to ${MAX_SPEECH_SPEED}.`));
     return;
   }
+  if (style !== undefined && typeof style !== "string") {
+    sendJson(res, 400, errorBody("unsupported_style", "style must be a string."));
+    return;
+  }
 
-  if (!life.loadable) {
+  const model = routes.speech.get(voice as SpeechVoice);
+  if (!model?.life.loadable) {
     sendJson(res, 503, errorBody("voice_unavailable", "The voice files are not installed with this copy of the app."));
     return;
   }
+  const { life, info } = model;
+  if (style !== undefined && !info.styles.includes(style)) {
+    const message = info.styles.length > 0 ? `style must be one of: ${info.styles.join(", ")}.` : `the ${voice} voice has no styles.`;
+    sendJson(res, 400, errorBody("unsupported_style", message));
+    return;
+  }
+  life.begin();
+  try {
+    await speak(res, life, info, { input, speed, style: style ?? info.defaultStyle });
+  } finally {
+    life.end();
+  }
+}
+
+async function speak(
+  res: ServerResponse,
+  life: LazyModel<SpeechEngine>,
+  info: SpeechVoiceInfo,
+  request: { input: string; speed: number; style: string | undefined },
+): Promise<void> {
+  const { input, speed, style } = request;
   const acquired = await life.acquire();
   if (!acquired.engine) {
     const headers: Record<string, string> =
@@ -423,18 +487,18 @@ async function speech(req: IncomingMessage, res: ServerResponse, life: LazyModel
   };
   res.on("close", onClose);
   try {
-    for await (const pcm of acquired.engine.stream(input, { speed, signal: abort.signal })) {
+    for await (const pcm of acquired.engine.stream(input, { speed, signal: abort.signal, ...(style ? { style } : {}) })) {
       if (abort.signal.aborted) break;
-      if (!res.headersSent) startAudio(res);
+      if (!res.headersSent) startAudio(res, info.sampleRate);
       if (!res.write(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength))) {
         // A slow reader leaves the audio queued in the engine's stream, not
-        // in socket buffers. Generation is not paused: at about ten times
-        // real time, MAX_SPEECH_CHARS is at most ~40 MB of PCM.
+        // in socket buffers. Generation is not paused: faster than real
+        // time, MAX_SPEECH_CHARS is at most ~40 MB of PCM.
         await Promise.race([once(res, "drain"), once(abort.signal, "abort")]);
       }
     }
     if (abort.signal.aborted) return;
-    if (!res.headersSent) startAudio(res);
+    if (!res.headersSent) startAudio(res, info.sampleRate);
     res.end();
   } catch (err) {
     life.log(`speech failed: ${describe(err)}`);
@@ -446,10 +510,10 @@ async function speech(req: IncomingMessage, res: ServerResponse, life: LazyModel
   }
 }
 
-function startAudio(res: ServerResponse): void {
+function startAudio(res: ServerResponse, sampleRate: number): void {
   res.writeHead(200, {
     "content-type": "application/octet-stream",
-    "x-sample-rate": String(SPEECH_SAMPLE_RATE),
+    "x-sample-rate": String(sampleRate),
     "cache-control": "no-store",
   });
 }

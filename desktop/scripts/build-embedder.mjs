@@ -28,7 +28,7 @@ import { pipeline } from "node:stream/promises";
  * `dist/embedder` as a flat directory that does not mirror `node_modules` —
  * proven necessary by the go/no-go prototype's packaged-layout simulation.
  *
- * Last, the Turkish voice: the files pinned in `embedder/src/tts/files.ts`,
+ * Last, the voices (Turkish and English): the files pinned in `embedder/src/tts/files.ts`,
  * staged into `voice/` beside the bundle, because the app ships them rather
  * than downloading them at run time. They are fetched once into
  * `.cache/voice/` (gitignored) and every copy is SHA-256-checked on every

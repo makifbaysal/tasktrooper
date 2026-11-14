@@ -497,4 +497,12 @@ describe("voice validators", () => {
     expect(() => validateVoiceSpeak({ lang: "tr", text: "x", speed: 5 })).toThrow(ValidationError);
     expect(() => validateVoiceSpeak({ lang: "tr", text: "x", speed: Number.NaN })).toThrow(ValidationError);
   });
+
+  it("takes an optional style shaped like a voice style name", () => {
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", style: "bm_george" })).toEqual({ lang: "en", text: "Hi.", speed: 1, style: "bm_george" });
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", style: null })).toEqual({ lang: "en", text: "Hi.", speed: 1 });
+    for (const style of ["", "af", "AF_HEART", "af_heart2", "af_heart; rm", "../af_heart", `af_${"x".repeat(40)}`, 3]) {
+      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", style })).toThrow(ValidationError);
+    }
+  });
 });

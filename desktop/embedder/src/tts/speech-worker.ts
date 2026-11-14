@@ -1,9 +1,10 @@
 import { Worker } from "node:worker_threads";
 
 /**
- * The voice, held in a worker thread of its own: separate from the embedding
- * model's, so each loads, idles out and unloads on its own schedule, and
- * `terminate()` hands the voice's wasm memory back without touching the other.
+ * A voice, held in a worker thread of its own: separate from the embedding
+ * model's and from the other language's voice, so each loads, idles out and
+ * unloads on its own schedule, and `terminate()` hands that voice's wasm
+ * memory back without touching the others.
  * See worker-engine.ts for why a worker at all.
  *
  * A request streams: the worker posts each chunk as it is made (its buffer
@@ -11,13 +12,17 @@ import { Worker } from "node:worker_threads";
  * worker at its next ONNX run.
  */
 
+/** Which model the worker holds: EMA Lightning for Turkish, Kokoro for English. */
+export type SpeechVoice = "tr" | "en";
+
 export interface SpeechWorkerInit {
+  voice: SpeechVoice;
   voiceDir: string;
   wasmDir: string;
   numThreads: number;
 }
 
-export type SpeechWorkerRequest = { type: "speak"; id: number; text: string; speed: number } | { type: "cancel"; id: number };
+export type SpeechWorkerRequest = { type: "speak"; id: number; text: string; speed: number; style?: string } | { type: "cancel"; id: number };
 
 export type SpeechWorkerReply =
   | { type: "ready" }
@@ -26,9 +31,16 @@ export type SpeechWorkerReply =
   | { type: "done"; id: number }
   | { type: "error"; id: number; message: string };
 
+export interface SpeechOptions {
+  speed: number;
+  signal: AbortSignal;
+  /** The English voice's style; the Turkish voice has none. */
+  style?: string;
+}
+
 export interface SpeechEngine {
-  /** 48 kHz mono float32 chunks, in order. Ends early, without an error, when `signal` aborts. */
-  stream(text: string, options: { speed: number; signal: AbortSignal }): AsyncIterable<Float32Array>;
+  /** Mono float32 chunks at the voice's rate, in order. Ends early, without an error, when `signal` aborts. */
+  stream(text: string, options: SpeechOptions): AsyncIterable<Float32Array>;
   release(): Promise<void>;
   /** False once the engine can no longer answer (its worker died), so the next request loads a new one. */
   readonly alive?: boolean;
@@ -58,7 +70,7 @@ class WorkerSpeechEngine implements SpeechEngine {
     return !this.#dead;
   }
 
-  async *stream(text: string, options: { speed: number; signal: AbortSignal }): AsyncGenerator<Float32Array> {
+  async *stream(text: string, options: SpeechOptions): AsyncGenerator<Float32Array> {
     if (this.#dead) throw new Error("the speech worker is gone");
     const { signal } = options;
     if (signal.aborted) return;
@@ -84,7 +96,7 @@ class WorkerSpeechEngine implements SpeechEngine {
     });
     const onAbort = (): void => notify();
     signal.addEventListener("abort", onAbort);
-    this.#worker.postMessage({ type: "speak", id, text, speed: options.speed } satisfies SpeechWorkerRequest);
+    this.#worker.postMessage({ type: "speak", id, text, speed: options.speed, style: options.style } satisfies SpeechWorkerRequest);
     try {
       for (;;) {
         const next = queue.shift();

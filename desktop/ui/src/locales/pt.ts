@@ -202,7 +202,7 @@ export const pt: Dict = {
     },
     voice: {
       title: "Falar com os agentes",
-      help: "Toque no microfone num chat e fale; o agente responde em voz alta, escreve o que diz e desenha na tela quando ajuda. A voz funciona com o app em Türkçe ou English. A fala é reconhecida neste Mac e não sai dele.",
+      help: "Toque no microfone num chat e fale; o agente responde em voz alta, escreve o que diz e desenha na tela quando ajuda. A voz funciona com o app em Türkçe ou English. A fala é reconhecida neste Mac e a voz que responde, em turco ou inglês, também é gerada nele; nada sai dele.",
       unavailable: "A voz precisa do macOS e do idioma do app em Türkçe ou English.",
       speed: "Velocidade de leitura",
       bargeIn: "Interromper falando",

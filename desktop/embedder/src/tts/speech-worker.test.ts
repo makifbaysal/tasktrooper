@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { ENGLISH_STYLES } from "./files.js";
 import { startSpeechWorker, type SpeechEngine } from "./speech-worker.js";
 
 /**
@@ -15,7 +16,7 @@ function fakeWorker(body: string): string {
   return file;
 }
 
-const init = { voiceDir: "/v", wasmDir: "/w", numThreads: 1 };
+const init = { voice: "tr" as const, voiceDir: "/v", wasmDir: "/w", numThreads: 1 };
 
 // Three chunks of [speed, i] for "say"; for "long", one every 20 ms until
 // cancelled; "crash" kills the thread.
@@ -37,7 +38,7 @@ parentPort.on("message", (req) => {
     return;
   }
   for (let i = 0; i < 3; i++) {
-    const pcm = Float32Array.from([req.speed, i]);
+    const pcm = Float32Array.from([req.speed, i, req.style === "bm_george" ? 1 : 0]);
     parentPort.postMessage({ type: "chunk", id: req.id, pcm }, [pcm.buffer]);
   }
   parentPort.postMessage({ type: "done", id: req.id });
@@ -53,12 +54,20 @@ describe("startSpeechWorker", () => {
   it("streams each chunk in order and ends on done", async () => {
     const engine = await startSpeechWorker(fakeWorker(FAKE), init);
     expect(await collect(engine, "say")).toEqual([
-      [1.5, 0],
-      [1.5, 1],
-      [1.5, 2],
+      [1.5, 0, 0],
+      [1.5, 1, 0],
+      [1.5, 2, 0],
     ]);
     await engine.release();
     expect(engine.alive).toBe(false);
+  });
+
+  it("passes the style on to the worker", async () => {
+    const engine = await startSpeechWorker(fakeWorker(FAKE), { ...init, voice: "en" });
+    const got: number[][] = [];
+    for await (const pcm of engine.stream("say", { speed: 1, style: "bm_george", signal: new AbortController().signal })) got.push(Array.from(pcm));
+    expect(got.map((c) => c[2])).toEqual([1, 1, 1]);
+    await engine.release();
   });
 
   it("passes a worker error on", async () => {
@@ -97,7 +106,7 @@ describe("startSpeechWorker", () => {
 const dist = path.resolve(import.meta.dirname, "../../../dist/embedder");
 describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", "ema_sound.onnx")))("the real voice", () => {
   it("speaks a Turkish sentence: audible, a sane length, first chunk one second", { timeout: 60_000 }, async () => {
-    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
+    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { voice: "tr", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
     try {
       const chunks: Float32Array[] = [];
       for await (const pcm of engine.stream("Merhaba! Bugün hava çok güzel.", { speed: 1, signal: new AbortController().signal })) chunks.push(pcm);
@@ -109,6 +118,28 @@ describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.
       const rms = Math.sqrt(all.reduce((a, b) => a + b * b, 0) / all.length);
       expect(rms).toBeGreaterThan(0.01);
       expect(all.every(Number.isFinite)).toBe(true);
+    } finally {
+      await engine.release();
+    }
+  });
+});
+
+describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", "kokoro_v1_q8.onnx")))("the real English voice", () => {
+  it("speaks an English sentence in every bundled style: audible, a sane length, one pass per sentence", { timeout: 180_000 }, async () => {
+    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { voice: "en", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
+    try {
+      for (const style of ENGLISH_STYLES) {
+        const chunks: Float32Array[] = [];
+        for await (const pcm of engine.stream("Hello! The build is done.", { speed: 1, style, signal: new AbortController().signal })) chunks.push(pcm);
+        expect(chunks).toHaveLength(2);
+        const all = chunks.flatMap((c) => Array.from(c));
+        const seconds = all.length / 24_000;
+        expect(seconds).toBeGreaterThan(1);
+        expect(seconds).toBeLessThan(5);
+        const rms = Math.sqrt(all.reduce((a, b) => a + b * b, 0) / all.length);
+        expect(rms).toBeGreaterThan(0.01);
+        expect(all.every(Number.isFinite)).toBe(true);
+      }
     } finally {
       await engine.release();
     }

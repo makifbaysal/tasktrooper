@@ -8,9 +8,9 @@ import type { SpeechEngine } from "./tts/speech-worker.js";
 /** `POST /v1/audio/speech` against a fake voice: what reaches the client, and when generation stops. */
 
 function fakeVoice(chunks: Float32Array[], options: { failAfter?: number; gate?: Promise<void> } = {}) {
-  const seen: { text: string; speed: number; signal: AbortSignal }[] = [];
+  const seen: { text: string; speed: number; signal: AbortSignal; style?: string }[] = [];
   const engine = {
-    stream: vi.fn(async function* (text: string, opts: { speed: number; signal: AbortSignal }) {
+    stream: vi.fn(async function* (text: string, opts: { speed: number; signal: AbortSignal; style?: string }) {
       seen.push({ text, ...opts });
       for (const [i, chunk] of chunks.entries()) {
         if (opts.signal.aborted) return;
@@ -33,9 +33,12 @@ afterEach(async () => {
   }
 });
 
-async function start(voice?: () => Promise<SpeechEngine>) {
+const ENGLISH = { sampleRate: 24_000, styles: ["af_heart", "bm_george"], defaultStyle: "af_heart" };
+
+async function start(voice?: () => Promise<SpeechEngine>, english?: () => Promise<SpeechEngine>) {
   const made = createEmbeddingsServer({ log: () => undefined, idleUnloadMs: 0 });
-  if (voice) made.enableSpeech(voice);
+  if (voice) made.enableSpeech("tr", voice, { sampleRate: SPEECH_SAMPLE_RATE, styles: [] });
+  if (english) made.enableSpeech("en", english, ENGLISH);
   await new Promise<void>((resolve) => made.server.listen(0, "127.0.0.1", resolve));
   open.push(made.server);
   return { ...made, port: (made.server.address() as AddressInfo).port };
@@ -78,14 +81,57 @@ describe("POST /v1/audio/speech", () => {
     ["speed too high", { input: "a", speed: 2.5 }, "bad_request"],
     ["speed too low", { input: "a", speed: 0.25 }, "bad_request"],
     ["speed not a number", { input: "a", speed: "fast" }, "bad_request"],
-    ["unsupported voice", { input: "a", voice: "en" }, "unsupported_voice"],
+    ["unsupported voice", { input: "a", voice: "fr" }, "unsupported_voice"],
+    ["a style for the Turkish voice", { input: "a", style: "af_heart" }, "unsupported_style"],
+    ["an unknown English style", { input: "a", voice: "en", style: "af_nobody" }, "unsupported_style"],
+    ["a style that is not a string", { input: "a", voice: "en", style: 3 }, "unsupported_style"],
   ])("answers 400 for %s without loading the voice", async (_label, body, code) => {
     const load = vi.fn(async () => fakeVoice([]).engine);
-    const s = await start(load);
+    const s = await start(load, load);
     const { res, bytes } = await speak(s.port, body);
     expect(res.status).toBe(400);
     expect((JSON.parse(bytes.toString()) as { error: { code: string } }).error.code).toBe(code);
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it("routes English to its own voice at 24 kHz, with the default style unless one is named", async () => {
+    const turkish = fakeVoice([Float32Array.from([1])]);
+    const english = fakeVoice([Float32Array.from([0.5])]);
+    const loadTurkish = vi.fn(async () => turkish.engine);
+    const s = await start(loadTurkish, async () => english.engine);
+    const { res, bytes } = await speak(s.port, { input: "Hello!", voice: "en", speed: 1.25 });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-sample-rate")).toBe("24000");
+    expect(bytes.readFloatLE(0)).toBe(0.5);
+    expect(english.seen[0]).toMatchObject({ text: "Hello!", speed: 1.25, style: "af_heart" });
+    expect(loadTurkish).not.toHaveBeenCalled();
+
+    expect((await speak(s.port, { input: "Hi", voice: "en", style: "bm_george" })).res.status).toBe(200);
+    expect(english.seen[1].style).toBe("bm_george");
+
+    const tr = await speak(s.port, { input: "Merhaba" });
+    expect(tr.res.headers.get("x-sample-rate")).toBe("48000");
+    expect(turkish.seen[0].style).toBeUndefined();
+  });
+
+  it("answers 503 voice_unavailable for a language whose files are missing", async () => {
+    const s = await start(async () => fakeVoice([]).engine);
+    const { res, bytes } = await speak(s.port, { input: "Hello", voice: "en", style: "af_heart" });
+    expect(res.status).toBe(503);
+    expect(bytes.toString()).toContain("voice_unavailable");
+  });
+
+  it("lists the voices this copy has on GET /v1/audio/voices", async () => {
+    const both = await start(async () => fakeVoice([]).engine, async () => fakeVoice([]).engine);
+    const listed = await (await fetch(`http://127.0.0.1:${both.port}/v1/audio/voices`)).json();
+    expect(listed).toEqual({
+      voices: [
+        { id: "tr", sample_rate: 48_000, styles: [] },
+        { id: "en", sample_rate: 24_000, styles: ["af_heart", "bm_george"], default_style: "af_heart" },
+      ],
+    });
+    const none = await start();
+    expect(await (await fetch(`http://127.0.0.1:${none.port}/audio/voices`)).json()).toEqual({ voices: [] });
   });
 
   it("answers 413 for input past the cap", async () => {

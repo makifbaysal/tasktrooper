@@ -797,6 +797,13 @@ export interface VoiceCapabilities {
   listen: Record<VoiceLanguage, boolean>;
   /** A bundled voice reads this language; false means the page falls back to the OS voice. */
   speak: Record<VoiceLanguage, boolean>;
+  /**
+   * The styles (speakers) the bundled voice offers per language, the default
+   * first; empty for a voice with one speaker or none bundled. English's are
+   * Kokoro's names: `af_heart`, `am_michael`, `bf_emma`, … (a/b American or
+   * British, f/m female or male).
+   */
+  speakStyles: Record<VoiceLanguage, string[]>;
 }
 
 /** Speech recognition for one utterance, pushed as it happens. */

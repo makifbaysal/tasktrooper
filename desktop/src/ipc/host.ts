@@ -254,7 +254,8 @@ export interface DesktopVoiceHost {
   listenStop(id: string): Promise<void>;
   listenCancel(id: string): Promise<void>;
   onTranscript(cb: (event: VoiceTranscriptEvent) => void): () => void;
-  speak(lang: VoiceLanguage, text: string, speed?: number): Promise<{ id: string }>;
+  /** `style` is one of `capabilities().speakStyles[lang]`; left out, the voice's default. */
+  speak(lang: VoiceLanguage, text: string, speed?: number, style?: string): Promise<{ id: string }>;
   speakCancel(id: string): Promise<void>;
   onAudio(cb: (event: VoiceAudioEvent) => void): () => void;
 }

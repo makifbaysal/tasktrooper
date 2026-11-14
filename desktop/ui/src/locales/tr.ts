@@ -203,7 +203,7 @@ export const tr: Dict = {
     },
     voice: {
       title: "Agent'larla sesli konuşma",
-      help: "Bir sohbette mikrofona basıp konuşun; agent sesli cevap verir, söylediklerini yazar ve gerektiğinde ekrana çizer. Ses, uygulama dili Türkçe veya English iken çalışır. Konuşmanız bu Mac'te tanınır ve Türkçe ses bu Mac'te üretilir; ikisi de bilgisayardan çıkmaz.",
+      help: "Bir sohbette mikrofona basıp konuşun; agent sesli cevap verir, söylediklerini yazar ve gerektiğinde ekrana çizer. Ses, uygulama dili Türkçe veya English iken çalışır. Konuşmanız bu Mac'te tanınır; cevap veren Türkçe ya da İngilizce ses de bu Mac'te üretilir, ikisi de bilgisayardan çıkmaz.",
       unavailable: "Sesli konuşma için macOS ve Türkçe ya da English uygulama dili gerekir.",
       speed: "Okuma hızı",
       bargeIn: "Konuşarak sözünü kes",

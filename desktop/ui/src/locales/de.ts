@@ -202,7 +202,7 @@ export const de: Dict = {
     },
     voice: {
       title: "Mit Agenten sprechen",
-      help: "Tippe in einem Chat auf das Mikrofon und sprich; der Agent antwortet laut, schreibt mit und zeichnet auf den Bildschirm, wenn es hilft. Sprache funktioniert mit der App-Sprache Türkçe oder English. Gesprochenes wird auf diesem Mac erkannt und verlässt ihn nicht.",
+      help: "Tippe in einem Chat auf das Mikrofon und sprich; der Agent antwortet laut, schreibt mit und zeichnet auf den Bildschirm, wenn es hilft. Sprache funktioniert mit der App-Sprache Türkçe oder English. Gesprochenes wird auf diesem Mac erkannt, und die antwortende Stimme, Türkisch oder Englisch, entsteht ebenfalls auf ihm; nichts davon verlässt ihn.",
       unavailable: "Sprache braucht macOS und die App-Sprache Türkçe oder English.",
       speed: "Lesegeschwindigkeit",
       bargeIn: "Durch Sprechen unterbrechen",

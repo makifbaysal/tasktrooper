@@ -779,7 +779,9 @@ export function validateVoiceListenAudio(raw: unknown): { id: string; pcm: Uint8
   return { id, pcm: bytes };
 }
 
-export function validateVoiceSpeak(raw: unknown): { lang: VoiceLanguage; text: string; speed: number } {
+const VOICE_STYLE = /^[a-z]{2}_[a-z]+$/;
+
+export function validateVoiceSpeak(raw: unknown): { lang: VoiceLanguage; text: string; speed: number; style?: string } {
   const o = asRecord(raw, "voice");
   const lang = asVoiceLanguage(o.lang, "voice.lang");
   const text = asString(o.text, "voice.text", { max: VOICE_SPEAK_MAX_CHARS });
@@ -791,5 +793,7 @@ export function validateVoiceSpeak(raw: unknown): { lang: VoiceLanguage; text: s
     }
     speed = o.speed;
   }
-  return { lang, text, speed };
+  if (o.style === undefined || o.style === null) return { lang, text, speed };
+  if (typeof o.style !== "string" || o.style.length > 32 || !VOICE_STYLE.test(o.style)) fail("voice.style must be a voice style name like af_heart");
+  return { lang, text, speed, style: o.style };
 }

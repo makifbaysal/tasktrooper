@@ -138,7 +138,7 @@ export interface IpcServices {
   voiceListenAudio(id: string, pcm: Uint8Array): void;
   voiceListenStop(id: string): void;
   voiceListenCancel(id: string): void;
-  voiceSpeak(lang: VoiceLanguage, text: string, speed: number): Promise<{ id: string }>;
+  voiceSpeak(lang: VoiceLanguage, text: string, speed: number, style?: string): Promise<{ id: string }>;
   voiceSpeakCancel(id: string): void;
 
   analyticsState(): AnalyticsState;
@@ -459,8 +459,8 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
     services.voiceListenCancel(validateVoiceId(payload).id);
   });
   cloud(CLOUD_CHANNELS.voiceSpeak, (payload) => {
-    const { lang, text, speed } = validateVoiceSpeak(payload);
-    return services.voiceSpeak(lang, text, speed);
+    const { lang, text, speed, style } = validateVoiceSpeak(payload);
+    return services.voiceSpeak(lang, text, speed, style);
   });
   cloud(CLOUD_CHANNELS.voiceSpeakCancel, (payload) => {
     services.voiceSpeakCancel(validateVoiceId(payload).id);

@@ -51,13 +51,41 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+const VOICES = {
+  voices: [
+    { id: "tr", sample_rate: 48_000, styles: [] },
+    { id: "en", sample_rate: 24_000, styles: ["af_bella", "af_heart", "bm_george"], default_style: "af_heart" },
+  ],
+};
+
+function voicesFetch(body: unknown, status = 200) {
+  return vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
+}
+
 describe("VoiceService.capabilities", () => {
-  it("listens on macOS with the helper and speaks Turkish through the embedder", async () => {
-    const { service } = setup();
+  it("listens on macOS with the helper and speaks the languages the embedder lists, default style first", async () => {
+    const fetchMock = voicesFetch(VOICES);
+    const { service } = setup({ fetch: fetchMock as unknown as typeof fetch });
     await expect(service.capabilities()).resolves.toEqual({
       listen: { tr: true, en: true },
-      speak: { tr: true, en: false },
+      speak: { tr: true, en: true },
+      speakStyles: { tr: [], en: ["af_heart", "af_bella", "bm_george"] },
     });
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe("http://127.0.0.1:5555/v1/audio/voices");
+  });
+
+  it("speaks only what the embedder has files for", async () => {
+    const { service } = setup({ fetch: voicesFetch({ voices: [{ id: "tr", sample_rate: 48_000, styles: [] }] }) as unknown as typeof fetch });
+    const caps = await service.capabilities();
+    expect(caps.speak).toEqual({ tr: true, en: false });
+    expect(caps.speakStyles).toEqual({ tr: [], en: [] });
+  });
+
+  it("speaks nothing when the embedder does not answer the list", async () => {
+    for (const fetchMock of [voicesFetch({}, 404), voicesFetch({ voices: "no" }), vi.fn(async () => Promise.reject(new Error("refused")))]) {
+      const { service } = setup({ fetch: fetchMock as unknown as typeof fetch, log: () => {} });
+      expect((await service.capabilities()).speak).toEqual({ tr: false, en: false });
+    }
   });
 
   it("does not listen without the helper or off macOS, and does not speak without the embedder", async () => {
@@ -65,8 +93,9 @@ describe("VoiceService.capabilities", () => {
     await expect(service.capabilities()).resolves.toEqual({
       listen: { tr: false, en: false },
       speak: { tr: false, en: false },
+      speakStyles: { tr: [], en: [] },
     });
-    const noHelper = setup({ speechBinary: () => null }).service;
+    const noHelper = setup({ speechBinary: () => null, fetch: voicesFetch(VOICES) as unknown as typeof fetch }).service;
     expect((await noHelper.capabilities()).listen.tr).toBe(false);
   });
 });
@@ -158,9 +187,32 @@ describe("VoiceService speaking", () => {
     expect(events[0].payload).toMatchObject({ id, done: true, error: expect.any(String) });
   });
 
-  it("has no bundled English voice", async () => {
-    const { service } = setup();
-    await expect(service.speak("en", "Hello.", 1)).rejects.toThrow(/en/);
+  it("asks for English with the style, and forwards the 24 kHz rate the embedder announces", async () => {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([0, 0, 128, 63]), { status: 200, headers: { "X-Sample-Rate": "24000" } }));
+    const { service, events } = setup({ fetch: fetchMock as unknown as typeof fetch });
+    await service.speak("en", "Hello.", 1.25, "bm_george");
+    await vi.waitFor(() => expect(events.some((e) => (e.payload as { done?: boolean }).done)).toBe(true));
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ input: "Hello.", voice: "en", speed: 1.25, style: "bm_george" });
+    expect(events.map((e) => (e.payload as { sampleRate: number }).sampleRate)).toEqual([24_000, 24_000]);
+  });
+
+  it("leaves the style out for the Turkish voice and when none is picked", async () => {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(0), { status: 200 }));
+    const { service, events } = setup({ fetch: fetchMock as unknown as typeof fetch });
+    await service.speak("tr", "Merhaba.", 1, "af_heart");
+    await service.speak("en", "Hello.", 1);
+    await vi.waitFor(() => expect(events.filter((e) => (e.payload as { done?: boolean }).done)).toHaveLength(2));
+    const bodies = fetchMock.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string) as Record<string, unknown>);
+    expect(bodies).toEqual([
+      { input: "Merhaba.", voice: "tr", speed: 1 },
+      { input: "Hello.", voice: "en", speed: 1 },
+    ]);
+  });
+
+  it("refuses to speak while the embedder is not running", async () => {
+    const { service } = setup({ embedderUrl: () => Promise.resolve(null) });
+    await expect(service.speak("en", "Hello.", 1)).rejects.toThrow(/not running/);
   });
 
   it("stays silent after a cancel", async () => {

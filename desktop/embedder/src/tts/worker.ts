@@ -1,9 +1,10 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { loadVoice } from "./ema.js";
+import { loadKokoro } from "./kokoro.js";
 import type { SpeechWorkerInit, SpeechWorkerReply, SpeechWorkerRequest } from "./speech-worker.js";
 
 /**
- * The worker side of `speech-worker.ts`: load the voice, then stream speech
+ * The worker side of `speech-worker.ts`: load the voice it was started for, then stream speech
  * for each request until the main thread terminates this thread.
  */
 
@@ -11,7 +12,8 @@ if (!parentPort) throw new Error("tts/worker.ts must run as a worker thread");
 const port = parentPort;
 
 const init = workerData as SpeechWorkerInit;
-const ready = loadVoice(init.voiceDir, init.wasmDir, { numThreads: init.numThreads });
+const options = { numThreads: init.numThreads };
+const ready = init.voice === "en" ? loadKokoro(init.voiceDir, init.wasmDir, options) : loadVoice(init.voiceDir, init.wasmDir, options);
 const running = new Map<number, AbortController>();
 
 ready.then(
@@ -27,13 +29,13 @@ port.on("message", (request: SpeechWorkerRequest) => {
   if (request.type !== "speak") return;
   const controller = new AbortController();
   running.set(request.id, controller);
-  void speak(request.id, request.text, request.speed, controller.signal).finally(() => running.delete(request.id));
+  void speak(request.id, request.text, request.speed, request.style, controller.signal).finally(() => running.delete(request.id));
 });
 
-async function speak(id: number, text: string, speed: number, signal: AbortSignal): Promise<void> {
+async function speak(id: number, text: string, speed: number, style: string | undefined, signal: AbortSignal): Promise<void> {
   try {
     const voice = await ready;
-    for await (const pcm of voice.stream(text, { speed, signal })) {
+    for await (const pcm of voice.stream(text, { speed, style, signal })) {
       port.postMessage({ type: "chunk", id, pcm } satisfies SpeechWorkerReply, [pcm.buffer as ArrayBuffer]);
     }
     port.postMessage({ type: "done", id } satisfies SpeechWorkerReply);

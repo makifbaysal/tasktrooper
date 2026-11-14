@@ -204,7 +204,7 @@ export const en = {
     },
     voice: {
       title: "Talking to agents",
-      help: "Press the microphone in a chat and talk; the agent answers out loud, writes what it says, and draws on the screen when that helps. Voice works when the app language is Türkçe or English. Speech is recognized on this Mac and the Turkish voice runs on it, so neither leaves this computer.",
+      help: "Press the microphone in a chat and talk; the agent answers out loud, writes what it says, and draws on the screen when that helps. Voice works when the app language is Türkçe or English. Speech is recognized on this Mac and the voice that answers, Turkish or English, is made on it too, so neither leaves this computer.",
       unavailable: "Voice needs macOS, and the app language set to Türkçe or English.",
       speed: "Reading speed",
       bargeIn: "Interrupt by talking",

@@ -2,9 +2,10 @@ import { statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { downloadAllWithRetry } from "./download.js";
-import { createEmbeddingsServer, DEFAULT_IDLE_UNLOAD_MS } from "./server.js";
-import { VOICE_DIR_NAME, VOICE_FILES } from "./tts/files.js";
-import { startSpeechWorker } from "./tts/speech-worker.js";
+import { createEmbeddingsServer, DEFAULT_IDLE_UNLOAD_MS, SPEECH_SAMPLE_RATE, type SpeechVoiceInfo } from "./server.js";
+import { ENGLISH_DEFAULT_STYLE, ENGLISH_FILES, ENGLISH_STYLES, TURKISH_FILES, VOICE_DIR_NAME, type VoiceFile } from "./tts/files.js";
+import { KOKORO_RATE } from "./tts/kokoro-plan.js";
+import { startSpeechWorker, type SpeechVoice } from "./tts/speech-worker.js";
 import { armParentWatchdog } from "./watchdog.js";
 import { defaultWasmThreads, startWorkerEngine } from "./worker-engine.js";
 
@@ -20,10 +21,11 @@ import { defaultWasmThreads, startWorkerEngine } from "./worker-engine.js";
  * the ~650 MB a loaded model costs, and an idle unload terminates that worker,
  * which is the only thing that gives wasm memory back.
  *
- * The Turkish voice is not downloaded: its files ship in `voice/` beside this
+ * The voices are not downloaded: their files ship in `voice/` beside this
  * bundle (staged by scripts/build-embedder.mjs, hash-checked there), the same
- * relative place in a dev build and a packaged one. It loads in a worker of
- * its own on the first `/v1/audio/speech` and idles out like the model does.
+ * relative place in a dev build and a packaged one. Each language's voice
+ * loads in a worker of its own on its first `/v1/audio/speech` and idles out
+ * like the model does.
  *
  * Spawned as `process.execPath <this file> --cache-dir <userData>` with
  * `ELECTRON_RUN_AS_NODE=1` (see `main/supervisor/supervisor.ts`), which is
@@ -64,12 +66,12 @@ function wasmThreads(raw: string | undefined): number {
 }
 
 /**
- * The voice's files, when every one is there at its pinned size. The hashes
+ * A voice's files, when every one is there at its pinned size. The hashes
  * were checked by the build that put them there; a size is the cheap check
- * that catches a truncated copy without reading 36 MB at every launch.
+ * that catches a truncated copy without reading 130 MB at every launch.
  */
-function voiceFilesPresent(dir: string): boolean {
-  return VOICE_FILES.every((file) => {
+function voiceFilesPresent(dir: string, files: readonly VoiceFile[]): boolean {
+  return files.every((file) => {
     try {
       return statSync(path.join(dir, file.name)).size === file.sizeBytes;
     } catch {
@@ -94,11 +96,17 @@ function main(): void {
   });
 
   const voiceDir = path.join(__dirname, VOICE_DIR_NAME);
-  if (voiceFilesPresent(voiceDir)) {
-    const speechScript = path.join(__dirname, "tts-worker.cjs");
-    enableSpeech(() => startSpeechWorker(speechScript, { voiceDir, wasmDir, numThreads }));
-  } else {
-    log.warn(`the voice files are missing or incomplete in ${voiceDir}; /v1/audio/speech answers 503.`);
+  const speechScript = path.join(__dirname, "tts-worker.cjs");
+  const voices: [SpeechVoice, readonly VoiceFile[], SpeechVoiceInfo][] = [
+    ["tr", TURKISH_FILES, { sampleRate: SPEECH_SAMPLE_RATE, styles: [] }],
+    ["en", ENGLISH_FILES, { sampleRate: KOKORO_RATE, styles: ENGLISH_STYLES, defaultStyle: ENGLISH_DEFAULT_STYLE }],
+  ];
+  for (const [voice, files, info] of voices) {
+    if (voiceFilesPresent(voiceDir, files)) {
+      enableSpeech(voice, () => startSpeechWorker(speechScript, { voice, voiceDir, wasmDir, numThreads }), info);
+    } else {
+      log.warn(`the ${voice} voice's files are missing or incomplete in ${voiceDir}; /v1/audio/speech answers 503 for it.`);
+    }
   }
 
   let shuttingDown = false;

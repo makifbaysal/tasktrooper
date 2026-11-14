@@ -14,10 +14,12 @@ import type { VoiceAudioEvent, VoiceCapabilities, VoiceLanguage, VoiceTranscript
  * the microphone (so Chromium's echo cancellation is between the speaker and
  * what we hear) and streams PCM here.
  *
- * Speaking is the embedder's `POST /v1/audio/speech` (Turkish, EMA Lightning,
- * bundled with the app): raw float32 PCM at 48 kHz, passed to the page chunk
- * by chunk as it is made. English has no bundled voice yet; the page uses the
- * OS voice for it.
+ * Speaking is the embedder's `POST /v1/audio/speech`, with voices bundled
+ * with the app (Turkish: EMA Lightning, 48 kHz; English: Kokoro, 24 kHz, in
+ * several styles): raw float32 PCM at the rate the embedder announces, passed
+ * to the page chunk by chunk as it is made. Which voices this copy has, and
+ * their styles, come from the embedder's `GET /v1/audio/voices`; a language
+ * without one is read by the page with the OS voice.
  */
 
 export const SPEECH_LOCALES: Record<VoiceLanguage, string> = { tr: "tr-TR", en: "en-US" };
@@ -27,6 +29,18 @@ export const MAX_UTTERANCE_MS = 5 * 60_000;
 
 /** A text longer than the embedder accepts; the page sends one sentence or so at a time. */
 export const MAX_SPEAK_CHARS = 4000;
+
+/** Each bundled voice's rate, for an error event sent before the embedder named one. */
+const SAMPLE_RATES: Record<VoiceLanguage, number> = { tr: 48_000, en: 24_000 };
+
+/** The voices list is a loopback call to a process this app runs; past this, the voices count as missing. */
+const VOICES_TIMEOUT_MS = 3_000;
+
+interface ListedVoice {
+  id: string;
+  styles?: unknown;
+  default_style?: unknown;
+}
 
 export interface VoiceDeps {
   platform: NodeJS.Platform;
@@ -56,11 +70,35 @@ export class VoiceService {
 
   async capabilities(): Promise<VoiceCapabilities> {
     const canListen = this.#deps.platform === "darwin" && this.#deps.speechBinary() !== null;
-    const url = await this.#deps.embedderUrl();
+    const voices = await this.#voices();
+    const styles = (lang: VoiceLanguage): string[] => {
+      const voice = voices.find((v) => v.id === lang);
+      const listed = Array.isArray(voice?.styles) ? voice.styles.filter((s): s is string => typeof s === "string") : [];
+      const first = typeof voice?.default_style === "string" && listed.includes(voice.default_style) ? voice.default_style : null;
+      return first ? [first, ...listed.filter((s) => s !== first)] : listed;
+    };
     return {
       listen: { tr: canListen, en: canListen },
-      speak: { tr: url !== null, en: false },
+      speak: { tr: voices.some((v) => v.id === "tr"), en: voices.some((v) => v.id === "en") },
+      speakStyles: { tr: styles("tr"), en: styles("en") },
     };
+  }
+
+  /** What the embedder can speak; none while it is not running or does not answer. */
+  async #voices(): Promise<ListedVoice[]> {
+    const base = await this.#deps.embedderUrl();
+    if (!base) return [];
+    try {
+      const doFetch = this.#deps.fetch ?? fetch;
+      const res = await doFetch(`${base}/v1/audio/voices`, { signal: AbortSignal.timeout(VOICES_TIMEOUT_MS) });
+      if (!res.ok) return [];
+      const body = (await res.json()) as { voices?: unknown };
+      if (!Array.isArray(body.voices)) return [];
+      return body.voices.filter((v): v is ListedVoice => typeof v === "object" && v !== null && typeof (v as ListedVoice).id === "string");
+    } catch (err) {
+      this.#deps.log?.(`[voice] listing voices failed: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
   }
 
   /** One utterance at a time: a new one ends whatever was still listening. */
@@ -132,15 +170,18 @@ export class VoiceService {
     utterance.child.kill("SIGTERM");
   }
 
-  /** Starts speaking `text`; the audio arrives as `voice:audio` events carrying the returned id. */
-  async speak(lang: VoiceLanguage, text: string, speed: number): Promise<{ id: string }> {
-    if (lang !== "tr") throw new Error(`No bundled voice for ${lang}.`);
+  /**
+   * Starts speaking `text`; the audio arrives as `voice:audio` events carrying
+   * the returned id. `style` picks the English voice's speaker; the Turkish
+   * voice has one, so a style for it is dropped rather than refused.
+   */
+  async speak(lang: VoiceLanguage, text: string, speed: number, style?: string): Promise<{ id: string }> {
     const base = await this.#deps.embedderUrl();
     if (!base) throw new Error("The voice engine is not running.");
     const id = randomUUID();
     const controller = new AbortController();
     this.#speeches.set(id, controller);
-    void this.#stream(id, base, text, speed, controller.signal);
+    void this.#stream(id, base, { lang, text, speed, style: lang === "en" ? style : undefined }, controller.signal);
     return { id };
   }
 
@@ -155,17 +196,23 @@ export class VoiceService {
     for (const id of [...this.#speeches.keys()]) this.speakCancel(id);
   }
 
-  async #stream(id: string, base: string, text: string, speed: number, signal: AbortSignal): Promise<void> {
+  async #stream(
+    id: string,
+    base: string,
+    request: { lang: VoiceLanguage; text: string; speed: number; style: string | undefined },
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { lang, text, speed, style } = request;
     const doFetch = this.#deps.fetch ?? fetch;
     try {
       const res = await doFetch(`${base}/v1/audio/speech`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: text, voice: "tr", speed }),
+        body: JSON.stringify({ input: text, voice: lang, speed, ...(style ? { style } : {}) }),
         signal,
       });
       if (!res.ok || !res.body) throw new Error(`voice engine answered ${res.status}`);
-      const sampleRate = Number(res.headers.get("x-sample-rate")) || 48_000;
+      const sampleRate = Number(res.headers.get("x-sample-rate")) || SAMPLE_RATES[lang];
       const reader = res.body.getReader();
       // A network chunk can split a float; carry the odd bytes to the next one.
       let carry = new Uint8Array(0);
@@ -181,7 +228,7 @@ export class VoiceService {
     } catch (err) {
       if (!signal.aborted) {
         this.#deps.log?.(`[voice] speak failed: ${err instanceof Error ? err.message : String(err)}`);
-        this.#publishAudio({ id, sampleRate: 48_000, done: true, error: "The voice engine could not read this." });
+        this.#publishAudio({ id, sampleRate: SAMPLE_RATES[lang], done: true, error: "The voice engine could not read this." });
       }
     } finally {
       this.#speeches.delete(id);

@@ -232,7 +232,7 @@ const voice: DesktopVoiceHost = {
   listenStop: (id) => call<void>(CLOUD_CHANNELS.voiceListenStop, { id }),
   listenCancel: (id) => call<void>(CLOUD_CHANNELS.voiceListenCancel, { id }),
   onTranscript: (cb) => subscribe<VoiceTranscriptEvent>(CLOUD_EVENTS.voiceTranscript, cb),
-  speak: (lang, text, speed) => call<{ id: string }>(CLOUD_CHANNELS.voiceSpeak, { lang, text, speed }),
+  speak: (lang, text, speed, style) => call<{ id: string }>(CLOUD_CHANNELS.voiceSpeak, { lang, text, speed, style }),
   speakCancel: (id) => call<void>(CLOUD_CHANNELS.voiceSpeakCancel, { id }),
   onAudio: (cb) => subscribe<VoiceAudioEvent>(CLOUD_EVENTS.voiceAudio, cb),
 };
