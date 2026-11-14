@@ -193,6 +193,7 @@ export const boardArea = {
         review_loop_parked: "Em espera: devolvida para ajustes repetidamente sem intervenção humana",
         qa_unchanged_reject_parked: "Em espera: o QA já rejeitou exatamente este código e nada mudou desde então",
         review_blocked_parked: "Em espera: o revisor não conseguiu verificar no seu ambiente",
+        review_rejected_stalled: "Devolvida: um revisor pediu alterações e o outro não conseguiu terminar",
         push_workflow_scope: "Em espera: o GitHub recusou o push — falta o escopo workflow no token",
       },
     },

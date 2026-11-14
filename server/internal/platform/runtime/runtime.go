@@ -1737,6 +1737,12 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				taskReviewStore := pgstore.NewTaskReviewStore(e.pgDB)
 				reviewQuorum = boardapp.NewReviewQuorum(taskReviewStore, quorumWorkflows)
 				repositorySvc.SetReviewQuorum(reviewQuorum)
+				if boardDispatcher != nil {
+					boardDispatcher.SetReviewQuorum(reviewQuorum)
+				}
+				if reconciler != nil {
+					reconciler.SetReviewQuorum(reviewQuorum, repositorySvc)
+				}
 				if reviewFindingStore != nil {
 					if reviewRules, rulesErr := reviewhistory.LoadRules(catalogdata.ReviewFS()); rulesErr != nil {
 						log.Error().Err(rulesErr).Msg("review history: the rules failed to load; the review history stays off")
@@ -2059,6 +2065,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			pipelineRunner.SetWorkflows(workflowSvc)
 			if boardDispatcher != nil {
 				boardDispatcher.SetPipelineGate(true)
+				boardDispatcher.SetGatePipelines(pipelineStore)
 			}
 			pipelineRunner.SetStageVerifier(repositorySvc)
 			// Lets a finished prod deploy re-read the task and post its

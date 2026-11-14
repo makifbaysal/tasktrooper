@@ -193,6 +193,7 @@ export const boardArea = {
         review_loop_parked: "已搁置：在没有人工介入的情况下被反复退回修改",
         qa_unchanged_reject_parked: "已搁置：QA 已拒绝过完全相同的代码，此后没有任何改动",
         review_blocked_parked: "已搁置：审查者无法在其环境中验证",
+        review_rejected_stalled: "已退回：一位审查者要求修改，另一位审查者未能完成",
         push_workflow_scope: "已搁置：GitHub 拒绝了推送 — 令牌缺少 workflow 权限范围",
       },
     },
