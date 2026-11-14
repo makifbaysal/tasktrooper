@@ -21,6 +21,17 @@ type Reconciler struct {
 	criteriaLoop *CriteriaLoopGuard
 	workflows    port.WorkflowReader
 	roles        port.RoleResolver
+	quorum       *ReviewQuorum
+	mover        TaskMover
+}
+
+type TaskMover interface {
+	UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID, req domain.UpdateBoardTaskRequest) (domain.BoardTask, error)
+}
+
+func (r *Reconciler) SetReviewQuorum(q *ReviewQuorum, mover TaskMover) {
+	r.quorum = q
+	r.mover = mover
 }
 
 func (r *Reconciler) SetWorkflows(w port.WorkflowReader)   { r.workflows = w }
@@ -143,6 +154,9 @@ func (r *Reconciler) dispatchNeverStarted(ctx context.Context, candidates []port
 		if task.BlockedResource == domain.ResourceWorkOrder {
 			continue
 		}
+		if r.reviveStalledReview(ctx, task, runs) {
+			continue
+		}
 		reason := ""
 		if len(runs) == 0 {
 			reason = "never_dispatched"
@@ -180,6 +194,77 @@ func (r *Reconciler) dispatchNeverStarted(ctx context.Context, candidates []port
 			log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("reconciler: dispatch idle task failed")
 		}
 	}
+}
+
+// A quorum review round waits for every required reviewer. One whose run
+// died while another reviewer finished later is invisible to the newest-run
+// rule above, so the round is read directly: a reviewer still to decide whose
+// last run failed is started again, and once it has failed as often as any
+// task may, a round that already holds a rejection is closed on it.
+func (r *Reconciler) reviveStalledReview(ctx context.Context, task domain.BoardTask, runs []domain.TaskAgentRun) bool {
+	pending, rejected, ok := r.quorum.RoundState(ctx, task)
+	if !ok || len(pending) == 0 {
+		return false
+	}
+	waiting := make(map[uuid.UUID]bool, len(pending))
+	for _, id := range pending {
+		waiting[id] = true
+	}
+	failures := 0
+	lastFailed := false
+	seen := make(map[uuid.UUID]bool, len(pending))
+	for _, run := range runs {
+		if run.Status == domain.TaskAgentRunStatusPending || run.Status == domain.TaskAgentRunStatusRunning {
+			return false
+		}
+		if !waiting[run.AgentID] {
+			continue
+		}
+		failed := run.Status == domain.TaskAgentRunStatusFailed
+		if failed {
+			failures++
+		}
+		if !seen[run.AgentID] {
+			seen[run.AgentID] = true
+			lastFailed = lastFailed || failed
+		}
+	}
+	if failures >= maxConsecutiveFailedRuns {
+		if !rejected || r.mover == nil {
+			return false
+		}
+		column := domain.TaskColumnNeedRevision
+		if _, err := r.mover.UpdateTask(ctx, task.RepositoryID, task.ID, domain.UpdateBoardTaskRequest{
+			Column:       &column,
+			SystemReason: domain.MoveReasonReviewRejectedStalled,
+		}); err != nil {
+			log.Warn().Err(err).Str("task_id", task.ID.String()).
+				Msg("reconciler: closing a stalled review round on its rejection failed")
+			return false
+		}
+		log.Info().Str("task_id", task.ID.String()).
+			Msg("reconciler: review round stalled on a reviewer that keeps failing, sent back on the rejection it holds")
+		return true
+	}
+	if !lastFailed {
+		return false
+	}
+	log.Info().Str("task_id", task.ID.String()).Int("pending_reviewers", len(pending)).
+		Msg("reconciler: re-dispatching a review round whose pending reviewer's run failed")
+	if err := r.dispatcher.Dispatch(ctx, DispatchInput{
+		RepositoryID: task.RepositoryID,
+		Task:         task,
+		EventType:    domain.BoardEventTaskMoved,
+		Payload: map[string]interface{}{
+			"reconciled":              true,
+			"reason":                  "review_quorum_pending",
+			domain.EventPayloadActor:  domain.EventActorSystem,
+			domain.EventPayloadReason: domain.MoveReasonReconciled,
+		},
+	}); err != nil {
+		log.Warn().Err(err).Str("task_id", task.ID.String()).Msg("reconciler: re-dispatching a stalled review round failed")
+	}
+	return true
 }
 
 func (r *Reconciler) recoverStale(ctx context.Context, run domain.TaskAgentRun, task domain.BoardTask, taskFound bool, cutoff time.Time) {

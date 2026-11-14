@@ -193,6 +193,7 @@ export const boardArea = {
         review_loop_parked: "En attente : renvoyée en révision à plusieurs reprises sans intervention humaine",
         qa_unchanged_reject_parked: "En attente : la QA a déjà rejeté exactement ce code, rien n'a changé depuis",
         review_blocked_parked: "En attente : le relecteur n'a pas pu le vérifier dans son environnement",
+        review_rejected_stalled: "Renvoyée : un relecteur a demandé des modifications et l'autre n'a pas pu terminer",
         push_workflow_scope: "En attente : GitHub a refusé le push — le jeton n'a pas le scope workflow",
       },
     },

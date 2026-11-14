@@ -213,6 +213,7 @@ export const boardArea = {
         review_loop_parked: "Parked: sent back to revision repeatedly without human input",
         qa_unchanged_reject_parked: "Parked: QA already rejected this exact code, nothing changed since",
         review_blocked_parked: "Parked: the reviewer could not verify it in its environment",
+        review_rejected_stalled: "Sent back: a reviewer asked for changes and the other reviewer could not finish",
         push_workflow_scope: "Parked: GitHub refused the push — the token lacks the workflow scope",
       },
     },
