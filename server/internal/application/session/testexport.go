@@ -25,6 +25,10 @@ func AttachImageAttachmentsForTest(
 	attachImageAttachments(ctx, store, rows, history)
 }
 
+func InlineTextFileAttachmentsForTest(history []domain.Message) {
+	inlineTextFileAttachments(history)
+}
+
 func ResolveRunWorkspaceForTest(
 	ctx context.Context,
 	store port.SessionStore,

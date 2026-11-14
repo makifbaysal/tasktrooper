@@ -147,6 +147,45 @@ func (s *AttachmentStore) LinkMessage(ctx context.Context, messageID, attachment
 	return nil
 }
 
+func (s *AttachmentStore) ListMetaByCommentIDs(ctx context.Context, commentIDs []uuid.UUID) (map[uuid.UUID][]domain.AttachmentMeta, error) {
+	if len(commentIDs) == 0 {
+		return map[uuid.UUID][]domain.AttachmentMeta{}, nil
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT tca.comment_id, a.id, a.repository_id, a.filename, a.content_type, a.size_bytes, a.sha256, a.created_by_type, COALESCE(a.created_by_id, ''), a.created_at
+		FROM task_comment_attachments tca
+		JOIN attachments a ON a.id = tca.attachment_id
+		WHERE tca.comment_id = ANY($1)
+		ORDER BY a.created_at ASC
+	`, commentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list comment attachments: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[uuid.UUID][]domain.AttachmentMeta)
+	for rows.Next() {
+		var commentID uuid.UUID
+		var meta domain.AttachmentMeta
+		if err := rows.Scan(&commentID, &meta.ID, &meta.RepositoryID, &meta.Filename, &meta.ContentType, &meta.SizeBytes, &meta.SHA256, &meta.CreatedByType, &meta.CreatedByID, &meta.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan comment attachment: %w", err)
+		}
+		out[commentID] = append(out[commentID], meta)
+	}
+	return out, rows.Err()
+}
+
+func (s *AttachmentStore) LinkComment(ctx context.Context, commentID, attachmentID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO task_comment_attachments (comment_id, attachment_id)
+		VALUES ($1, $2)
+		ON CONFLICT (comment_id, attachment_id) DO NOTHING
+	`, commentID, attachmentID)
+	if err != nil {
+		return fmt.Errorf("link comment attachment: %w", err)
+	}
+	return nil
+}
+
 func (s *AttachmentStore) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.pool.Exec(ctx, `DELETE FROM attachments WHERE id = $1`, id)
 	if err != nil {

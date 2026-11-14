@@ -156,6 +156,10 @@ func (s *Service) resumeParkedTurn(ctx context.Context, pending domain.PendingSe
 	useOrchestrator := s.orchestrator != nil && s.orchestrator.ShouldOrchestrate(req.Content, forceOrchestrate)
 	workspacePolicy := domain.EnsureAskUserTool(effectivePolicy)
 
+	if !domain.RequiresHostExecutor(agentProvider) {
+		inlineTextFileAttachments(history)
+	}
+
 	var resp domain.AgentResponse
 	switch {
 	case domain.RequiresHostExecutor(agentProvider):

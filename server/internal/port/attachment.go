@@ -16,5 +16,7 @@ type AttachmentStore interface {
 	LinkTask(ctx context.Context, taskID, attachmentID uuid.UUID, position int) error
 	UnlinkTask(ctx context.Context, taskID, attachmentID uuid.UUID) error
 	LinkMessage(ctx context.Context, messageID, attachmentID uuid.UUID) error
+	ListMetaByCommentIDs(ctx context.Context, commentIDs []uuid.UUID) (map[uuid.UUID][]domain.AttachmentMeta, error)
+	LinkComment(ctx context.Context, commentID, attachmentID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }

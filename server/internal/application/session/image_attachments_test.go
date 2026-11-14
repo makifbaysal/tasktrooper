@@ -83,7 +83,7 @@ func (s *ImageAttachmentsSuite) TestImageRidesAlongAsBase64() {
 	s.Equal(base64.StdEncoding.EncodeToString([]byte("pixels")), history[0].Images[0].Data)
 }
 
-func (s *ImageAttachmentsSuite) TestOnlyImageContentTypesAreSent() {
+func (s *ImageAttachmentsSuite) TestOnlyImageContentTypesGoInImagesOthersGoInFiles() {
 	rows, history := transcript(domain.RoleUser)
 	store := &fakeAttachmentStore{}
 	store.image(rows[0].ID, "application/pdf", 1024, "doc")
@@ -95,7 +95,48 @@ func (s *ImageAttachmentsSuite) TestOnlyImageContentTypesAreSent() {
 	s.Require().Len(history[0].Images, 1)
 	s.Equal("image/webp", history[0].Images[0].MediaType)
 
-	s.Equal(1, store.gets)
+	s.Require().Len(history[0].Files, 2)
+	s.Equal("application/pdf", history[0].Files[0].MediaType)
+	s.Equal(base64.StdEncoding.EncodeToString([]byte("doc")), history[0].Files[0].Data)
+	s.Equal("text/plain", history[0].Files[1].MediaType)
+
+	s.Equal(3, store.gets)
+}
+
+func (s *ImageAttachmentsSuite) TestFilesOverTheSizeCapAreSkipped() {
+	rows, history := transcript(domain.RoleUser)
+	store := &fakeAttachmentStore{}
+	store.image(rows[0].ID, "application/pdf", (5<<20)+1, "too big")
+	store.image(rows[0].ID, "text/plain", 5<<20, "exactly at the cap")
+
+	session.AttachImageAttachmentsForTest(context.Background(), store, rows, history)
+
+	s.Require().Len(history[0].Files, 1)
+	s.Equal(base64.StdEncoding.EncodeToString([]byte("exactly at the cap")), history[0].Files[0].Data)
+}
+
+func (s *ImageAttachmentsSuite) TestOnlyTheSixNewestFilesSurvive() {
+	rows, history := transcript(
+		domain.RoleUser, domain.RoleAssistant,
+		domain.RoleUser, domain.RoleAssistant,
+		domain.RoleUser, domain.RoleAssistant,
+		domain.RoleUser,
+	)
+	store := &fakeAttachmentStore{}
+	for _, idx := range []int{0, 2, 4, 6} {
+		store.image(rows[idx].ID, "text/plain", 100, fmt.Sprintf("a%d", idx))
+		store.image(rows[idx].ID, "text/plain", 100, fmt.Sprintf("b%d", idx))
+	}
+
+	session.AttachImageAttachmentsForTest(context.Background(), store, rows, history)
+
+	total := 0
+	for _, m := range history {
+		total += len(m.Files)
+	}
+	s.Equal(6, total, "the cap must hold across the whole history")
+	s.Empty(history[0].Files, "the oldest turn's files are the ones dropped")
+	s.Len(history[6].Files, 2)
 }
 
 func (s *ImageAttachmentsSuite) TestImagesOverTheSizeCapAreSkipped() {

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -47,6 +48,117 @@ func TestAddCommentStampsActorUserID(t *testing.T) {
 			t.Fatalf("want nil actor_user_id, got %v", *created.ActorUserID)
 		}
 	})
+}
+
+type fakeCommentAttachmentStore struct {
+	metas map[uuid.UUID]domain.AttachmentMeta
+	links map[uuid.UUID][]uuid.UUID
+}
+
+func (f *fakeCommentAttachmentStore) Create(context.Context, domain.Attachment) (domain.AttachmentMeta, error) {
+	return domain.AttachmentMeta{}, nil
+}
+
+func (f *fakeCommentAttachmentStore) Get(context.Context, uuid.UUID) (domain.Attachment, error) {
+	return domain.Attachment{}, nil
+}
+
+func (f *fakeCommentAttachmentStore) GetMeta(_ context.Context, id uuid.UUID) (domain.AttachmentMeta, error) {
+	meta, ok := f.metas[id]
+	if !ok {
+		return domain.AttachmentMeta{}, fmt.Errorf("attachment not found")
+	}
+	return meta, nil
+}
+
+func (f *fakeCommentAttachmentStore) ListMetaByTask(context.Context, uuid.UUID) ([]domain.AttachmentMeta, error) {
+	return nil, nil
+}
+
+func (f *fakeCommentAttachmentStore) ListMetaByMessageIDs(context.Context, []uuid.UUID) (map[uuid.UUID][]domain.AttachmentMeta, error) {
+	return nil, nil
+}
+
+func (f *fakeCommentAttachmentStore) LinkTask(context.Context, uuid.UUID, uuid.UUID, int) error { return nil }
+
+func (f *fakeCommentAttachmentStore) UnlinkTask(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+
+func (f *fakeCommentAttachmentStore) LinkMessage(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+
+func (f *fakeCommentAttachmentStore) ListMetaByCommentIDs(_ context.Context, commentIDs []uuid.UUID) (map[uuid.UUID][]domain.AttachmentMeta, error) {
+	out := make(map[uuid.UUID][]domain.AttachmentMeta)
+	for _, cID := range commentIDs {
+		for _, aID := range f.links[cID] {
+			out[cID] = append(out[cID], f.metas[aID])
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeCommentAttachmentStore) LinkComment(_ context.Context, commentID, attachmentID uuid.UUID) error {
+	if f.links == nil {
+		f.links = map[uuid.UUID][]uuid.UUID{}
+	}
+	f.links[commentID] = append(f.links[commentID], attachmentID)
+	return nil
+}
+
+func (f *fakeCommentAttachmentStore) Delete(context.Context, uuid.UUID) error { return nil }
+
+func TestAddComment_LinksProvidedAttachments(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	repos := &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}}
+	tasks := &fakeReleaseTaskStore{task: domain.BoardTask{ID: taskID, RepositoryID: repoID}}
+	comments := &fakeReleaseComments{}
+	attachmentID := uuid.New()
+	attachments := &fakeCommentAttachmentStore{
+		metas: map[uuid.UUID]domain.AttachmentMeta{attachmentID: {ID: attachmentID, Filename: "report.pdf"}},
+	}
+	svc := &Service{repos: repos, tasks: tasks, comments: comments, attachments: attachments}
+
+	created, err := svc.AddComment(context.Background(), repoID, taskID, domain.CreateTaskCommentRequest{
+		Content:       "see attached",
+		AttachmentIDs: []string{attachmentID.String()},
+	})
+	require.NoError(t, err)
+	require.Len(t, created.Attachments, 1)
+	require.Equal(t, "report.pdf", created.Attachments[0].Filename)
+	require.Equal(t, []uuid.UUID{attachmentID}, attachments.links[created.ID])
+}
+
+func TestListComments_PopulatesAttachments(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	commentID, attachmentID := uuid.New(), uuid.New()
+	repos := &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}}
+	tasks := &fakeReleaseTaskStore{task: domain.BoardTask{ID: taskID, RepositoryID: repoID}}
+	comments := &fakeReleaseComments{comments: []domain.TaskComment{{ID: commentID, TaskID: taskID}}}
+	attachments := &fakeCommentAttachmentStore{
+		metas: map[uuid.UUID]domain.AttachmentMeta{attachmentID: {ID: attachmentID, Filename: "report.pdf"}},
+		links: map[uuid.UUID][]uuid.UUID{commentID: {attachmentID}},
+	}
+	svc := &Service{repos: repos, tasks: tasks, comments: comments, attachments: attachments}
+
+	got, err := svc.ListComments(context.Background(), repoID, taskID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Len(t, got[0].Attachments, 1)
+	require.Equal(t, "report.pdf", got[0].Attachments[0].Filename)
+}
+
+// A comment created before migration 206 (or with no attachment store wired)
+// must still list cleanly, with no attachments rather than an error.
+func TestListComments_WithoutAttachmentStoreIsBackwardCompatible(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	commentID := uuid.New()
+	repos := &fakeReleaseRepoStore{repo: domain.Repository{ID: repoID}}
+	tasks := &fakeReleaseTaskStore{task: domain.BoardTask{ID: taskID, RepositoryID: repoID}}
+	comments := &fakeReleaseComments{comments: []domain.TaskComment{{ID: commentID, TaskID: taskID}}}
+	svc := &Service{repos: repos, tasks: tasks, comments: comments}
+
+	got, err := svc.ListComments(context.Background(), repoID, taskID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Empty(t, got[0].Attachments)
 }
 
 type commentEventStore struct {

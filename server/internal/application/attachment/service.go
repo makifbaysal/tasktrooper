@@ -122,6 +122,14 @@ func (s *Service) LinkMessage(ctx context.Context, messageID, attachmentID uuid.
 	return s.store.LinkMessage(ctx, messageID, attachmentID)
 }
 
+func (s *Service) ListMetaByCommentIDs(ctx context.Context, commentIDs []uuid.UUID) (map[uuid.UUID][]domain.AttachmentMeta, error) {
+	return s.store.ListMetaByCommentIDs(ctx, commentIDs)
+}
+
+func (s *Service) LinkComment(ctx context.Context, commentID, attachmentID uuid.UUID) error {
+	return s.store.LinkComment(ctx, commentID, attachmentID)
+}
+
 // AttachToTask stores a tool's image (a screenshot) and links it to the task
 // the run is working.
 func (s *Service) AttachToTask(ctx context.Context, repositoryID, taskID uuid.UUID, filename, contentType string, data []byte) (domain.AttachmentMeta, error) {
