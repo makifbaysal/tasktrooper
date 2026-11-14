@@ -118,11 +118,11 @@ describe("VoiceConversation", () => {
     t.conv.replyProgress("Tamam. Hemen bakıyorum.\n");
     expect(t.conv.snapshot.state).toBe("speaking");
     await flush();
-    expect(t.host.speak).toHaveBeenCalledWith("tr", "Tamam.", undefined);
+    expect(t.host.speak).toHaveBeenCalledWith("tr", "Tamam.", undefined, undefined);
 
     t.audio({ id: "s2", sampleRate: 48000, done: true });
     await flush();
-    expect(t.host.speak).toHaveBeenLastCalledWith("tr", "Hemen bakıyorum.", undefined);
+    expect(t.host.speak).toHaveBeenLastCalledWith("tr", "Hemen bakıyorum.", undefined, undefined);
 
     t.conv.replyDone("Tamam. Hemen bakıyorum.\n");
     t.audio({ id: "s3", sampleRate: 48000, done: true });

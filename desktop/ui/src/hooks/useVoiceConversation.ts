@@ -3,6 +3,7 @@ import { desktopVoice, type DesktopVoiceCapabilities, type DesktopVoiceLanguage 
 import type { Lang } from "@/lib/languages";
 import { VoiceConversation, type VoiceSnapshot } from "@/lib/voice/conversation";
 import { readVoicePrefs } from "@/lib/voice/prefs";
+import { effectiveVoice } from "@/lib/voice/voiceChoice";
 
 const OFF: VoiceSnapshot = { state: "off", transcript: "", level: 0, error: null };
 
@@ -79,6 +80,7 @@ export function useVoiceConversation(
       lang,
       bundledVoice: caps.speak[lang],
       speed: prefs.speed,
+      voice: effectiveVoice(caps, lang, prefs.voices[lang]).choice,
       bargeIn: prefs.bargeIn,
       onChange: (s) => {
         setSnapshot(s);

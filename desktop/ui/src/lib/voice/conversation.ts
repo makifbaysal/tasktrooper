@@ -1,5 +1,6 @@
 import type {
   DesktopVoiceAudioEvent,
+  DesktopVoiceChoice,
   DesktopVoiceHost,
   DesktopVoiceLanguage,
   DesktopVoiceTranscriptEvent,
@@ -44,6 +45,8 @@ export interface VoiceConversationOptions {
   /** A bundled voice exists for `lang`; otherwise the OS voice reads it. */
   bundledVoice: boolean;
   speed?: number;
+  /** The bundled model and voice to read with; absent = the language's default. */
+  voice?: DesktopVoiceChoice;
   bargeIn?: boolean;
   onChange(snapshot: VoiceSnapshot): void;
   /** The person finished an utterance: send it to the agent as a spoken turn. */
@@ -408,7 +411,7 @@ export class VoiceConversation {
     for (const w of this.#words(text)) this.#echoWords.add(w);
     if (this.#o.bundledVoice) {
       this.#speakingId = "pending";
-      this.#o.host.speak(this.#o.lang, text, this.#o.speed).then(
+      this.#o.host.speak(this.#o.lang, text, this.#o.speed, this.#o.voice).then(
         ({ id }) => {
           const early = this.#early.get(id) ?? [];
           this.#early.clear();
