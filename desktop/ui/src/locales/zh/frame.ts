@@ -15,6 +15,7 @@ export const frame = {
         label: "给 {name} 发消息",
         placeholder: "向 PM 提问…",
         shortcut: "{mod}K",
+        voice: "与 {name} 语音对话",
         failed: "无法开始对话",
       },
       feedback: {

@@ -80,6 +80,10 @@ export const fr: Dict = {
         title: "Application de bureau",
         description: "Mises à jour et confidentialité de TaskTrooper sur cet ordinateur.",
       },
+      voice: {
+        title: "Voix",
+        description: "Parler aux agents à voix haute sur cet ordinateur.",
+      },
       desktopOnly: "Les mises à jour, les notifications de bureau et les statistiques d'utilisation anonymes se règlent dans l'application de bureau TaskTrooper.",
     },
     github: {

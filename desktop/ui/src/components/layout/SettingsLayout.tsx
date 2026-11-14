@@ -1,9 +1,26 @@
-import { Activity, BarChart3, Bot, Boxes, GitBranch, Globe, Kanban, Plug, Server, Smartphone, Users, Wrench, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Bot,
+  Boxes,
+  GitBranch,
+  Globe,
+  Kanban,
+  Laptop,
+  Mic,
+  Plug,
+  Server,
+  SlidersHorizontal,
+  Smartphone,
+  Users,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { PageContent } from "@/components/layout/PageContent";
 import { PageSuspense } from "@/components/layout/PageSuspense";
 import { PageHeader } from "@/components/admin/PageHeader";
-import { desktopRemoteAccess, desktopToolchain } from "@/lib/desktop-bridge";
+import { desktopRemoteAccess, desktopToolchain, desktopUpdates, desktopVoice } from "@/lib/desktop-bridge";
 import { ADVANCED_TEAM_CONFIG } from "@/lib/features";
 import { TOOLCHAIN_SETTINGS_PATH } from "@/lib/toolchainJob";
 import { useI18n } from "@/hooks/useI18n";
@@ -26,13 +43,18 @@ export function SettingsLayout() {
   const groups: SettingsNavGroup[] = [
     {
       id: "general",
-      items: [{ to: "/settings", label: t("frame.layout.settingsTabs.general"), icon: Globe }],
+      items: [
+        { to: "/settings", label: t("frame.layout.settingsTabs.general"), icon: Globe },
+        ...(desktopVoice() ? [{ to: "/settings/voice", label: t("settings.sections.voice.title"), icon: Mic }] : []),
+        ...(desktopUpdates() ? [{ to: "/settings/app", label: t("settings.sections.app.title"), icon: Laptop }] : []),
+      ],
     },
     {
       id: "ai",
       label: t("frame.layout.settingsGroups.ai"),
       items: [
         { to: "/settings/llm", label: t("frame.layout.settingsTabs.llm"), icon: Bot },
+        { to: "/settings/agents", label: t("settings.sections.agents.title"), icon: SlidersHorizontal },
         { to: "/settings/mcp", label: t("frame.layout.settingsTabs.mcp"), icon: Server },
         { to: "/settings/catalog", label: t("frame.layout.settingsTabs.catalog"), icon: Boxes },
         // Only the desktop shell can probe and install on this computer.

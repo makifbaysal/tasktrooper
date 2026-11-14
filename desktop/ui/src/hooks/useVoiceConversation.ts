@@ -11,6 +11,31 @@ export function voiceLanguageFor(lang: Lang): DesktopVoiceLanguage | null {
   return lang === "tr" || lang === "en" ? lang : null;
 }
 
+/** What this computer can do by voice; null until the shell answers (or with no shell). */
+function useVoiceCapabilities(): DesktopVoiceCapabilities | null {
+  const host = desktopVoice();
+  const [caps, setCaps] = useState<DesktopVoiceCapabilities | null>(null);
+  useEffect(() => {
+    if (!host) return;
+    let live = true;
+    host.capabilities().then(
+      (c) => live && setCaps(c),
+      () => live && setCaps(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [host]);
+  return caps;
+}
+
+/** A voice conversation can be started in the app language on this computer. */
+export function useVoiceAvailable(appLang: Lang): boolean {
+  const caps = useVoiceCapabilities();
+  const lang = voiceLanguageFor(appLang);
+  return Boolean(lang && caps?.listen[lang]);
+}
+
 export interface VoiceControls {
   /** This app, computer and language can hold a voice conversation. */
   available: boolean;
@@ -29,23 +54,11 @@ export function useVoiceConversation(
 ): VoiceControls {
   const host = desktopVoice();
   const lang = voiceLanguageFor(appLang);
-  const [caps, setCaps] = useState<DesktopVoiceCapabilities | null>(null);
+  const caps = useVoiceCapabilities();
   const [snapshot, setSnapshot] = useState<VoiceSnapshot>(OFF);
   const convRef = useRef<VoiceConversation | null>(null);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
-
-  useEffect(() => {
-    if (!host) return;
-    let live = true;
-    host.capabilities().then(
-      (c) => live && setCaps(c),
-      () => live && setCaps(null),
-    );
-    return () => {
-      live = false;
-    };
-  }, [host]);
 
   const stop = useCallback(() => {
     convRef.current?.stop();

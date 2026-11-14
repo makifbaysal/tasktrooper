@@ -681,6 +681,15 @@ export function AgentChatPage() {
   }, [voice.snapshot.error, t]);
   // Leaving the chat ends the conversation; the hook stops it on unmount.
   useEffect(() => voice.stop, [activeSessionId, voice.stop]);
+  // Entered from a "talk" button: the conversation starts once, when the session is loaded.
+  const autoVoice = location.state?.autoVoice === true;
+  const autoVoiceRef = useRef("");
+  useEffect(() => {
+    if (!autoVoice || !activeSessionId || loadedSessionId !== activeSessionId || !voice.available) return;
+    if (autoVoiceRef.current === activeSessionId) return;
+    autoVoiceRef.current = activeSessionId;
+    voice.start();
+  }, [autoVoice, activeSessionId, loadedSessionId, voice.available, voice.start]);
   const submitClarification = useCallback((answer: string) => void handleSendRef.current({ content: answer }), []);
   const stopTurn = useCallback(() => void handleStopRef.current(), []);
   const openActionTask = useCallback((action: SessionAction) => setOpenTaskId(action.entity_id ?? null), []);

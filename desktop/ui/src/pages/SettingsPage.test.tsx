@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSettings } from "@/api";
 import { I18nProvider } from "@/hooks/useI18n";
+import { AppSettingsPage } from "@/pages/AppSettingsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 
 if (!Element.prototype.scrollIntoView) {
@@ -48,10 +49,10 @@ function stubShell() {
   } as never;
 }
 
-function renderPage() {
+function renderPage(Page = SettingsPage) {
   return render(
     <I18nProvider>
-      <SettingsPage />
+      <Page />
     </I18nProvider>,
   );
 }
@@ -74,12 +75,24 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("switch", { name: "Usage statistics" })).not.toBeInTheDocument();
   });
 
-  it("in the desktop app, offers the usage statistics switch under Desktop app", async () => {
+  it("in the desktop app, keeps the app's own settings off General", async () => {
     stubShell();
     renderPage();
+    expect(await screen.findByLabelText("Language")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Usage statistics" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/are set in the TaskTrooper desktop app/)).not.toBeInTheDocument();
+  });
+
+  it("offers the usage statistics switch on the Desktop app page", async () => {
+    stubShell();
+    renderPage(AppSettingsPage);
     expect(await screen.findByRole("switch", { name: "Usage statistics" })).toBeChecked();
     expect(screen.getByRole("heading", { name: "Desktop app" })).toBeInTheDocument();
-    expect(screen.queryByText(/are set in the TaskTrooper desktop app/)).not.toBeInTheDocument();
+  });
+
+  it("in a browser, the Desktop app page says where those settings are", async () => {
+    renderPage(AppSettingsPage);
+    expect(await screen.findByText(/are set in the TaskTrooper desktop app/)).toBeInTheDocument();
   });
 
   it("saves a language as soon as it is picked", async () => {

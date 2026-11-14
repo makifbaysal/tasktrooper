@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopVoiceAudioEvent, DesktopVoiceHost, DesktopVoiceTranscriptEvent } from "@/lib/desktop-bridge";
 import type { MicChunk } from "./audio";
-import { BARGE_IN_MS, END_OF_TURN_MS, VoiceConversation, type VoiceSnapshot } from "./conversation";
+import { END_OF_TURN_MS, VoiceConversation, type VoiceSnapshot } from "./conversation";
 
 function fakeHost() {
   let transcriptCb: ((e: DesktopVoiceTranscriptEvent) => void) | null = null;
@@ -139,23 +139,50 @@ describe("VoiceConversation", () => {
     expect(t.conv.snapshot.state).toBe("listening");
   });
 
-  it("stops talking and listens when the person talks over it", async () => {
+  it("stops when loud input goes on over the bundled voice, and listens", async () => {
     const t = setup();
     await toThinking(t);
     t.conv.replyProgress("Uzun bir cevap veriyorum.\n");
     await flush();
     expect(t.conv.snapshot.state).toBe("speaking");
 
-    mic(0.3, 0);
-    mic(0.3, BARGE_IN_MS / 2);
+    mic(0.001);
+    await flush();
+    mic(0.2);
+    mic(0.001);
+    mic(0.2);
     expect(t.onInterrupt).not.toHaveBeenCalled();
-    mic(0.3, BARGE_IN_MS);
+    mic(0.2);
     expect(t.onInterrupt).toHaveBeenCalled();
     expect(t.host.speakCancel).toHaveBeenCalled();
     await flush();
     expect(t.conv.snapshot.state).toBe("listening");
-    // What was said while it interrupted reaches the recognizer.
-    expect(t.host.listenAudio).toHaveBeenCalledWith("u3", expect.any(ArrayBuffer));
+  });
+
+  it("interrupts on words the agent did not say, and keeps listening to them", async () => {
+    const t = setup();
+    await toThinking(t);
+    t.conv.replyProgress("Uzun bir cevap veriyorum.\n");
+    await flush();
+    mic(0.001);
+    await flush();
+    const bargeId = (await t.host.listenStart.mock.results.at(-1)!.value).id;
+    mic(0.001);
+    expect(t.host.listenAudio).toHaveBeenLastCalledWith(bargeId, expect.any(ArrayBuffer));
+
+    // Its own voice coming back through the mic is not an interruption.
+    t.transcript({ id: bargeId, type: "partial", text: "uzun bir cevap" });
+    expect(t.onInterrupt).not.toHaveBeenCalled();
+
+    t.transcript({ id: bargeId, type: "partial", text: "uzun bir cevap dur bekle" });
+    expect(t.onInterrupt).toHaveBeenCalled();
+    expect(t.conv.snapshot).toMatchObject({ state: "listening", transcript: "dur bekle" });
+    expect(t.host.listenCancel).not.toHaveBeenCalledWith(bargeId);
+
+    mic(0.001, END_OF_TURN_MS + 50);
+    expect(t.host.listenStop).toHaveBeenCalledWith(bargeId);
+    t.transcript({ id: bargeId, type: "final", text: "Uzun bir cevap dur bekle şunu yap" });
+    expect(t.onUtterance).toHaveBeenLastCalledWith("dur bekle şunu yap");
   });
 
   it("does not interrupt when barge-in is off", async () => {

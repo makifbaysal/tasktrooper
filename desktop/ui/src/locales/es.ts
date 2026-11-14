@@ -80,6 +80,10 @@ export const es: Dict = {
         title: "App de escritorio",
         description: "Actualizaciones y privacidad de TaskTrooper en este equipo.",
       },
+      voice: {
+        title: "Voz",
+        description: "Hablar en voz alta con los agentes en este ordenador.",
+      },
       desktopOnly: "Las actualizaciones, las notificaciones de escritorio y las estadísticas de uso anónimas se configuran en la app de escritorio de TaskTrooper.",
     },
     github: {

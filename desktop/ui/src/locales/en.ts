@@ -81,6 +81,10 @@ export const en = {
         title: "Desktop app",
         description: "Updates and privacy for TaskTrooper on this computer.",
       },
+      voice: {
+        title: "Voice",
+        description: "Talking to agents out loud on this computer.",
+      },
       desktopOnly: "Updates, desktop notifications and anonymous usage statistics are set in the TaskTrooper desktop app.",
     },
     github: {

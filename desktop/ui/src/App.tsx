@@ -65,6 +65,9 @@ const RemoteAccessSettingsPage = lazy(() => import("@/pages/RemoteAccessSettings
 const IntegrationsSettingsPage = lazy(() => import("@/pages/IntegrationsSettingsPage").then((m) => ({ default: m.IntegrationsSettingsPage })));
 const MCPServersPage = lazy(() => import("@/pages/MCPServersPage").then((m) => ({ default: m.MCPServersPage })));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const AgentDefaultsSettingsPage = lazy(() => import("@/pages/AgentDefaultsSettingsPage").then((m) => ({ default: m.AgentDefaultsSettingsPage })));
+const VoiceSettingsPage = lazy(() => import("@/pages/VoiceSettingsPage").then((m) => ({ default: m.VoiceSettingsPage })));
+const AppSettingsPage = lazy(() => import("@/pages/AppSettingsPage").then((m) => ({ default: m.AppSettingsPage })));
 import { AdvancedConfigRoute } from "@/components/layout/AdvancedConfigRoute";
 import { EntitySubRoute } from "@/pages/ops/entity/EntitySubRoute";
 import { EntityIndexRedirect, LegacyComponentRedirect, RedirectKeepingSearch } from "@/pages/ops/opsRedirects";
@@ -216,6 +219,9 @@ export default function App() {
                 <Route path="memory" element={<SharedMemoryPage />} />
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route index element={<SettingsPage />} />
+                  <Route path="agents" element={<AgentDefaultsSettingsPage />} />
+                  <Route path="voice" element={<VoiceSettingsPage />} />
+                  <Route path="app" element={<AppSettingsPage />} />
                   <Route path="board" element={<AdvancedConfigRoute><BoardSettingsPage /></AdvancedConfigRoute>} />
                   <Route path="roles" element={<AdvancedConfigRoute><RolesSettingsPage /></AdvancedConfigRoute>} />
                   <Route path="workflows" element={<AdvancedConfigRoute><WorkflowSettingsPage /></AdvancedConfigRoute>} />

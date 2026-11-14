@@ -80,6 +80,10 @@ export const zh: Dict = {
         title: "桌面应用",
         description: "此电脑上 TaskTrooper 的更新与隐私。",
       },
+      voice: {
+        title: "语音",
+        description: "在这台电脑上与智能体语音对话。",
+      },
       desktopOnly: "更新、桌面通知和匿名使用统计需在 TaskTrooper 桌面应用中设置。",
     },
     github: {

@@ -1,5 +1,11 @@
-import type { DesktopVoiceAudioEvent, DesktopVoiceHost, DesktopVoiceLanguage, DesktopVoiceTranscriptEvent } from "@/lib/desktop-bridge";
+import type {
+  DesktopVoiceAudioEvent,
+  DesktopVoiceHost,
+  DesktopVoiceLanguage,
+  DesktopVoiceTranscriptEvent,
+} from "@/lib/desktop-bridge";
 import { openMic, PcmPlayer, type Mic, type MicChunk } from "./audio";
+import { osVoiceLang, pickOsVoice } from "./osVoice";
 import { SentenceFeed } from "./speechText";
 
 /**
@@ -11,8 +17,11 @@ import { SentenceFeed } from "./speechText";
  *   A pause after speech ends the utterance and sends what was said.
  * - thinking: the agent works; nothing is heard.
  * - speaking: each complete sentence of the reply is read as soon as it is
- *   written. Talking over it (barge-in) stops the voice and the run and goes
- *   straight back to listening, keeping what was just said.
+ *   written. Meanwhile a recognizer listens too: words that are not the
+ *   agent's own (its echo) mean the person is talking over it (barge-in), so
+ *   the voice and the run stop and that same utterance becomes the person's
+ *   turn. With the bundled voice, which the page plays and so echo
+ *   cancellation removes, sustained loud input interrupts as well.
  *
  * Everything the page needs comes out through `onChange`; the page feeds the
  * reply in through `replyProgress` / `replyDone`.
@@ -47,15 +56,23 @@ export interface VoiceConversationOptions {
 
 /** Silence after speech that ends an utterance. */
 export const END_OF_TURN_MS = 1_100;
-/** Continuous loud input that counts as talking over the agent. */
-export const BARGE_IN_MS = 300;
+/** Of the last BARGE_WINDOW mic chunks (0.1 s each), this many loud ones are talking over the agent. */
+export const BARGE_LOUD_CHUNKS = 3;
+export const BARGE_WINDOW = 5;
+/** Words heard while speaking that the agent did not say, before it counts as an interruption. */
+export const BARGE_WORDS = 2;
 /** Chunks (0.1 s each) kept so the start of an interruption is not lost. */
-const PREROLL_CHUNKS = 5;
+const PREROLL_CHUNKS = 8;
 
 export class VoiceConversation {
   readonly #o: VoiceConversationOptions;
   readonly #now: () => number;
-  #snap: VoiceSnapshot = { state: "off", transcript: "", level: 0, error: null };
+  #snap: VoiceSnapshot = {
+    state: "off",
+    transcript: "",
+    level: 0,
+    error: null,
+  };
   #mic: Mic | null = null;
   #unsubs: Array<() => void> = [];
 
@@ -75,7 +92,14 @@ export class VoiceConversation {
   #speakingId: string | null = null;
   #synthBusy = false;
   #drainTimer: ReturnType<typeof setTimeout> | null = null;
-  #loudSince: number | null = null;
+  #loudHistory: boolean[] = [];
+  // The recognizer that listens while the agent speaks, for barge-in.
+  #bargeId: string | null = null;
+  #bargeStarting = false;
+  // Words of the reply read so far: what the recognizer hears of them is echo.
+  #echoWords = new Set<string>();
+  // An utterance taken over from barge-in starts with echo; it is trimmed off.
+  #trimEcho = false;
   // Audio for an id whose speak() answer has not arrived yet.
   #early = new Map<string, DesktopVoiceAudioEvent[]>();
 
@@ -91,6 +115,8 @@ export class VoiceConversation {
   async start(): Promise<void> {
     if (this.#snap.state !== "off") return;
     this.#set({ state: "starting", transcript: "", error: null });
+    // Chromium fills the voice list lazily; asking now has it ready for the first reply.
+    if (!this.#o.bundledVoice && typeof speechSynthesis !== "undefined") speechSynthesis.getVoices();
     this.#unsubs.push(this.#o.host.onTranscript((e) => this.#onTranscript(e)));
     this.#unsubs.push(this.#o.host.onAudio((e) => this.#onAudio(e)));
     try {
@@ -112,6 +138,7 @@ export class VoiceConversation {
     this.#unsubs = [];
     if (this.#utteranceId) void this.#o.host.listenCancel(this.#utteranceId);
     this.#utteranceId = null;
+    this.#cancelBarge();
     this.#silence();
     this.#player.close();
     this.#set({ state: "off", level: 0 });
@@ -133,12 +160,19 @@ export class VoiceConversation {
 
   // --- listening -------------------------------------------------------------
 
-  async #listen(): Promise<void> {
+  #resetTurn(): void {
     this.#feed.reset();
     this.#queue = [];
     this.#replyFinished = false;
     this.#heardSpeech = false;
     this.#stopping = false;
+    this.#loudHistory = [];
+  }
+
+  async #listen(): Promise<void> {
+    this.#cancelBarge();
+    this.#resetTurn();
+    this.#trimEcho = false;
     this.#set({ state: "listening", transcript: "" });
     try {
       const { id } = await this.#o.host.listenStart(this.#o.lang);
@@ -182,18 +216,14 @@ export class VoiceConversation {
       case "speaking": {
         this.#keepPreroll(pcm);
         if (!this.#o.bargeIn) return;
-        const loud = rms > Math.max(0.06, this.#noiseFloor * 6);
-        if (!loud) {
-          this.#loudSince = null;
-          return;
-        }
-        this.#loudSince ??= now;
-        if (now - this.#loudSince >= BARGE_IN_MS) {
-          this.#loudSince = null;
-          this.#silence();
-          this.#o.onInterrupt();
-          void this.#listen();
-        }
+        if (this.#bargeId) void this.#o.host.listenAudio(this.#bargeId, pcm);
+        else this.#startBarge();
+        // The OS voice plays outside the page, where echo cancellation does
+        // not reach: its loudness is the agent's own, so only words count.
+        if (!this.#o.bundledVoice) return;
+        this.#loudHistory.push(rms > Math.max(0.03, this.#noiseFloor * 4));
+        if (this.#loudHistory.length > BARGE_WINDOW) this.#loudHistory.shift();
+        if (this.#loudHistory.filter(Boolean).length >= BARGE_LOUD_CHUNKS) this.#interrupt();
         return;
       }
       default:
@@ -207,9 +237,15 @@ export class VoiceConversation {
   }
 
   #onTranscript(e: DesktopVoiceTranscriptEvent): void {
+    if (e.id === this.#bargeId) {
+      this.#onBargeTranscript(e);
+      return;
+    }
     if (e.id !== this.#utteranceId) return;
     if (e.type === "partial") {
-      this.#set({ transcript: e.text });
+      this.#set({
+        transcript: this.#trimEcho ? this.#withoutEcho(e.text) : e.text,
+      });
       return;
     }
     if (e.type === "ready") return;
@@ -219,13 +255,109 @@ export class VoiceConversation {
       this.#set({ error: e.message });
       return;
     }
-    const text = (e.text || this.#snap.transcript).trim();
+    const heard = e.text ? (this.#trimEcho ? this.#withoutEcho(e.text) : e.text) : this.#snap.transcript;
+    this.#send(heard.trim());
+  }
+
+  #send(text: string): void {
     if (!text) {
       void this.#listen();
       return;
     }
+    this.#trimEcho = false;
+    this.#echoWords = new Set();
     this.#set({ state: "thinking", transcript: text });
     this.#o.onUtterance(text);
+  }
+
+  // --- barge-in --------------------------------------------------------------
+
+  #startBarge(): void {
+    if (this.#bargeId || this.#bargeStarting) return;
+    this.#bargeStarting = true;
+    this.#o.host.listenStart(this.#o.lang).then(
+      ({ id }) => {
+        this.#bargeStarting = false;
+        if (this.#snap.state !== "speaking") {
+          void this.#o.host.listenCancel(id);
+          return;
+        }
+        this.#bargeId = id;
+      },
+      () => {
+        // Barge-in by words is a nicety; the conversation goes on without it.
+        this.#bargeStarting = false;
+      },
+    );
+  }
+
+  #cancelBarge(): void {
+    if (this.#bargeId) void this.#o.host.listenCancel(this.#bargeId);
+    this.#bargeId = null;
+  }
+
+  #onBargeTranscript(e: DesktopVoiceTranscriptEvent): void {
+    if (e.type === "ready") return;
+    if (e.type === "partial") {
+      if (this.#snap.state === "speaking" && this.#novelWords(e.text) >= BARGE_WORDS) this.#interrupt(e.text);
+      return;
+    }
+    // The recognizer ended on its own (its silence limit, an error) while the
+    // agent was still talking.
+    this.#bargeId = null;
+    if (this.#snap.state !== "speaking") return;
+    const text = e.type === "final" ? e.text : "";
+    if (this.#novelWords(text) >= BARGE_WORDS) {
+      this.#silence();
+      this.#o.onInterrupt();
+      this.#resetTurn();
+      this.#send(this.#withoutEcho(text).trim());
+    }
+  }
+
+  /**
+   * The person talked over the reply: the voice and the run stop, and the
+   * barge-in recognizer, which already has their first words, becomes the
+   * utterance being listened to.
+   */
+  #interrupt(heard = ""): void {
+    this.#silence();
+    this.#o.onInterrupt();
+    const id = this.#bargeId;
+    if (!id) {
+      void this.#listen();
+      return;
+    }
+    this.#bargeId = null;
+    this.#resetTurn();
+    this.#utteranceId = id;
+    this.#trimEcho = true;
+    this.#heardSpeech = true;
+    this.#lastLoudAt = this.#now();
+    this.#preroll = [];
+    this.#set({
+      state: "listening",
+      transcript: heard ? this.#withoutEcho(heard) : "",
+    });
+  }
+
+  #words(text: string): string[] {
+    return text
+      .toLocaleLowerCase(this.#o.lang)
+      .split(/[^\p{L}\p{N}']+/u)
+      .filter(Boolean);
+  }
+
+  #novelWords(text: string): number {
+    return this.#words(text).filter((w) => !this.#echoWords.has(w)).length;
+  }
+
+  /** The heard text without the agent's own words it starts with. */
+  #withoutEcho(text: string): string {
+    const parts = text.trim().split(/\s+/);
+    let i = 0;
+    while (i < parts.length && this.#words(parts[i]).every((w) => this.#echoWords.has(w))) i++;
+    return parts.slice(i).join(" ");
   }
 
   // --- speaking --------------------------------------------------------------
@@ -244,6 +376,7 @@ export class VoiceConversation {
       this.#maybeBackToListening();
       return;
     }
+    for (const w of this.#words(text)) this.#echoWords.add(w);
     if (this.#o.bundledVoice) {
       this.#speakingId = "pending";
       this.#o.host.speak(this.#o.lang, text, this.#o.speed).then(
@@ -266,7 +399,9 @@ export class VoiceConversation {
     }
     if (typeof speechSynthesis === "undefined") return;
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = this.#o.lang === "tr" ? "tr-TR" : "en-US";
+    utterance.lang = osVoiceLang(this.#o.lang);
+    const voice = pickOsVoice(speechSynthesis.getVoices(), this.#o.lang);
+    if (voice) utterance.voice = voice;
     utterance.rate = this.#o.speed ?? 1;
     this.#synthBusy = true;
     const next = () => {
@@ -300,14 +435,17 @@ export class VoiceConversation {
     if (!this.#replyFinished || this.#queue.length > 0 || this.#speakingId || this.#synthBusy) return;
     if (this.#drainTimer) clearTimeout(this.#drainTimer);
     const left = this.#player.remaining();
-    this.#drainTimer = setTimeout(() => {
-      this.#drainTimer = null;
-      if (this.#player.remaining() > 0.05) {
-        this.#maybeBackToListening();
-        return;
-      }
-      if (this.#snap.state === "speaking" || this.#snap.state === "thinking") void this.#listen();
-    }, left * 1000 + 150);
+    this.#drainTimer = setTimeout(
+      () => {
+        this.#drainTimer = null;
+        if (this.#player.remaining() > 0.05) {
+          this.#maybeBackToListening();
+          return;
+        }
+        if (this.#snap.state === "speaking" || this.#snap.state === "thinking") void this.#listen();
+      },
+      left * 1000 + 150,
+    );
   }
 
   #silence(): void {

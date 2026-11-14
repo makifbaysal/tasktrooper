@@ -40,7 +40,7 @@ export interface AnalyticsEvents {
   task_review: { decision: "approve" | "send_back"; gate: "analysis" | "uat" };
   task_claim: { previous_owner: "none" | "someone" };
   issue_import: { provider: string };
-  chat_start: { agent_role: string; source: "chat" | "home_quick_ask" };
+  chat_start: { agent_role: string; source: "chat" | "home_quick_ask" | "home_voice" | "header_voice" };
   chat_message_send: { agent_role: string; outcome: "ok" };
   project_create: NoParams;
   repo_add: { provider: "github" | "folder" | "new" };

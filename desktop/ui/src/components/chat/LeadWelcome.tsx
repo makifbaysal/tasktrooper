@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Mic } from "lucide-react";
 import { toast } from "sonner";
 import type { Agent, AttachmentMeta, MessageMention } from "@/api";
 import { AgentAvatar } from "@/components/agent/AgentAvatar";
@@ -19,10 +19,12 @@ interface LeadWelcomeProps {
   onSubmit: (message: string, mentions: MessageMention[], attachments: AttachmentMeta[]) => void | Promise<void>;
   busy?: boolean;
   mentionOptions?: MentionOption[];
+  /** Starts a voice conversation instead; the button shows only when given. */
+  onStartVoice?: () => void;
 }
 
 
-export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = [] }: LeadWelcomeProps) {
+export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = [], onStartVoice }: LeadWelcomeProps) {
   const { t } = useI18n();
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -130,6 +132,12 @@ export function LeadWelcome({ agent, onSubmit, busy = false, mentionOptions = []
                     disabled={busy || pastingAttachment}
                     onUploaded={(metas) => setPendingAttachments((prev) => [...prev, ...metas])}
                   />
+                  {onStartVoice && (
+                    <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onStartVoice}>
+                      <Mic className="mr-1.5 h-4 w-4" />
+                      {t("agentArea.chat.lead.welcome.voice")}
+                    </Button>
+                  )}
                   <Button type="submit" size="icon" disabled={!canSend} aria-label={t("agentArea.chat.lead.welcome.send")}>
                     <ArrowUp className="h-4 w-4" />
                   </Button>

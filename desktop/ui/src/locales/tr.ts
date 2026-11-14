@@ -80,6 +80,10 @@ export const tr: Dict = {
         title: "Masaüstü uygulaması",
         description: "Bu bilgisayardaki TaskTrooper için güncellemeler ve gizlilik.",
       },
+      voice: {
+        title: "Ses",
+        description: "Bu bilgisayarda ajanlarla sesli konuşma.",
+      },
       desktopOnly: "Güncellemeler, masaüstü bildirimleri ve anonim kullanım istatistikleri TaskTrooper masaüstü uygulamasından ayarlanır.",
     },
     github: {

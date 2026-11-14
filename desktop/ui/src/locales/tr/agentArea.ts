@@ -336,6 +336,7 @@ export const agentArea: AgentAreaDict = {
         placeholder: "Bir özellik iste, bir hata bildir ya da board'u sor…",
         send: "Gönder",
         hint: "Enter ile gönder · Shift+Enter ile yeni satır · @ ile ajan, proje veya repo etiketle",
+        voice: "Sesli konuş",
         failed: "Sohbet başlatılamadı",
         suggestions: {
           board: { label: "Board'da ne var?", message: "Board'da şu an ne var?" },

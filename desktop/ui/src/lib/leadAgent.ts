@@ -67,3 +67,9 @@ export async function startLeadConversation(
     state: { autoSend: message, autoSendMentions: mentions, autoSendAttachments: attachments },
   });
 }
+
+/** Opens a new conversation with the lead and starts talking to it by voice there. */
+export async function startLeadVoiceConversation(navigate: NavigateFunction, agentId: string, title: string): Promise<void> {
+  const session = await api.createSession({ title, agent_id: agentId });
+  navigate(`/agents/${agentId}/chat/${session.id}`, { state: { autoVoice: true } });
+}

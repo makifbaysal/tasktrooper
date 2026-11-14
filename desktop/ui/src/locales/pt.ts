@@ -80,6 +80,10 @@ export const pt: Dict = {
         title: "App para desktop",
         description: "Atualizações e privacidade do TaskTrooper neste computador.",
       },
+      voice: {
+        title: "Voz",
+        description: "Falar em voz alta com os agentes neste computador.",
+      },
       desktopOnly: "Atualizações, notificações na área de trabalho e estatísticas de uso anônimas são configuradas no app para desktop do TaskTrooper.",
     },
     github: {
