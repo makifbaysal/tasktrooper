@@ -245,7 +245,15 @@ func (s *Service) ValidateColumn(ctx context.Context, slug string) error {
 	return nil
 }
 
-func (s *Service) ListActivity(ctx context.Context, events port.BoardEventStore, runs port.TaskAgentRunStore, limit int) ([]domain.ActivityItem, error) {
+// ChatActivitySource is the slice of session.Service ListActivity needs to
+// fold direct agent chat into the feed. Declared here rather than imported so
+// this package does not depend on application/session (which already depends
+// back on this one for workspace scope resolution).
+type ChatActivitySource interface {
+	ListRecentChatMessages(ctx context.Context, limit int) ([]domain.ChatActivityEntry, error)
+}
+
+func (s *Service) ListActivity(ctx context.Context, events port.BoardEventStore, runs port.TaskAgentRunStore, chats ChatActivitySource, limit int) ([]domain.ActivityItem, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -257,7 +265,11 @@ func (s *Service) ListActivity(ctx context.Context, events port.BoardEventStore,
 	if err != nil {
 		return nil, err
 	}
-	items := make([]domain.ActivityItem, 0, len(boardEvents)+len(agentRuns))
+	chatMessages, err := chats.ListRecentChatMessages(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]domain.ActivityItem, 0, len(boardEvents)+len(agentRuns)+len(chatMessages))
 	for _, e := range boardEvents {
 		items = append(items, domain.ActivityItem{
 			ID:           e.ID,
@@ -279,6 +291,20 @@ func (s *Service) ListActivity(ctx context.Context, events port.BoardEventStore,
 			Summary:   r.Summary,
 			CreatedAt: r.CreatedAt,
 		})
+	}
+	for _, m := range chatMessages {
+		item := domain.ActivityItem{
+			ID:        m.ID,
+			Kind:      "chat_message",
+			AgentID:   &m.AgentID,
+			SessionID: &m.SessionID,
+			Summary:   m.Content,
+			CreatedAt: m.CreatedAt,
+		}
+		if m.TaskID != nil {
+			item.TaskID = *m.TaskID
+		}
+		items = append(items, item)
 	}
 	sortActivityItems(items)
 	if len(items) > limit {

@@ -101,6 +101,10 @@ func (f *fakeSessionStore) FindByTaskAndAgent(_ context.Context, taskID, agentID
 	return domain.Session{}, false, nil
 }
 
+func (f *fakeSessionStore) ListRecentChatMessages(context.Context, int) ([]domain.ChatActivityEntry, error) {
+	return nil, nil
+}
+
 func clarificationJob(sessionID *uuid.UUID) RunJob {
 	return RunJob{
 		Run:  domain.TaskAgentRun{AgentID: uuid.New()},

@@ -365,6 +365,36 @@ func (s *SessionStore) ListByAgent(ctx context.Context, agentID uuid.UUID, limit
 	return s.scanSessions(ctx, rows)
 }
 
+func (s *SessionStore) ListRecentChatMessages(ctx context.Context, limit int) ([]domain.ChatActivityEntry, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT sm.id, sm.session_id, s.agent_id, s.task_id, sm.content, sm.created_at
+		FROM session_messages sm
+		JOIN sessions s ON s.id = sm.session_id
+		WHERE sm.role = $1 AND s.agent_id IS NOT NULL
+		ORDER BY sm.created_at DESC LIMIT $2
+	`, string(domain.RoleAssistant), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent chat messages: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []domain.ChatActivityEntry
+	for rows.Next() {
+		var e domain.ChatActivityEntry
+		if err := rows.Scan(&e.ID, &e.SessionID, &e.AgentID, &e.TaskID, &e.Content, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan recent chat message: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if entries == nil {
+		entries = []domain.ChatActivityEntry{}
+	}
+	return entries, rows.Err()
+}
+
 func (s *SessionStore) scanSessions(ctx context.Context, rows interface {
 	Next() bool
 	Scan(dest ...any) error
