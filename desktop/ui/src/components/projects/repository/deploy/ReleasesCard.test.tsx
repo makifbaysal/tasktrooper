@@ -6,7 +6,8 @@ import type { Component, Release } from "@/api";
 import { ReleasesCard } from "@/components/projects/repository/deploy/ReleasesCard";
 import { I18nProvider } from "@/hooks/useI18n";
 
-const { listReleases, getRelease, getReleaseCutPreview } = vi.hoisted(() => ({
+const { listReleases, getRelease, getReleaseCutPreview, dismissCutProposal } = vi.hoisted(() => ({
+  dismissCutProposal: vi.fn(),
   listReleases: vi.fn(),
   getRelease: vi.fn(),
   getReleaseCutPreview: vi.fn(),
@@ -14,7 +15,7 @@ const { listReleases, getRelease, getReleaseCutPreview } = vi.hoisted(() => ({
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, listReleases, getRelease, getReleaseCutPreview } };
+  return { ...actual, api: { ...actual.api, listReleases, getRelease, getReleaseCutPreview, dismissCutProposal } };
 });
 
 function makeRelease(overrides: Partial<Release> = {}): Release {
@@ -182,5 +183,30 @@ describe("ReleasesCard", () => {
 
     await waitFor(() => expect(listReleases).toHaveBeenCalled());
     expect(screen.queryByText(/Next release/)).not.toBeInTheDocument();
+  });
+
+  it("shows a proposed cut on the draft, to review or dismiss", async () => {
+    const draft = makeRelease({
+      id: "rel-draft",
+      status: "draft",
+      mode: "batch",
+      version: "",
+      cut_proposal: { proposed_at: "2024-01-02T00:00:00Z", by: "agent", version: "1.4.0" },
+    });
+    listReleases.mockResolvedValueOnce({ releases: [draft] }).mockResolvedValue({ releases: [{ ...draft, cut_proposal: null }] });
+    dismissCutProposal.mockResolvedValue({ ...draft, cut_proposal: null });
+    renderCard(
+      makeComponent({
+        delivery: { override: { mode: "batch", executor: "github_actions", verify: {}, auto_rollback: true } },
+      }),
+    );
+
+    expect(await screen.findByText("Release engineer proposes 1.4.0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review and cut" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(dismissCutProposal).toHaveBeenCalledWith("rel-draft"));
+    await waitFor(() => expect(screen.queryByText("Release engineer proposes 1.4.0")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Cut release" })).toBeInTheDocument();
   });
 });

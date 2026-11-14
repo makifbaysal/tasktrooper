@@ -27,6 +27,9 @@ type fakeReleaseService struct {
 	gotRepoID     uuid.UUID
 	forAgentCalls int
 
+	proposeErr error
+	gotCut     domain.ReleaseCutRequest
+
 	deployErr error
 	deployRel domain.Release
 
@@ -97,6 +100,16 @@ func (f *fakeReleaseService) Rollback(_ context.Context, releaseID uuid.UUID, ac
 func (f *fakeReleaseService) Impact(_ context.Context, releaseID uuid.UUID) (domain.DeployImpact, error) {
 	f.gotReleaseID = releaseID
 	return f.impact, f.impactErr
+}
+
+func (f *fakeReleaseService) ProposeCut(_ context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, req domain.ReleaseCutRequest) (domain.Release, error) {
+	f.gotReleaseID, f.gotActor, f.gotCut = releaseID, actor, req
+	if f.proposeErr != nil {
+		return domain.Release{}, f.proposeErr
+	}
+	r := f.release
+	r.CutProposal = &domain.CutProposal{By: actor, Version: req.Version, Notes: req.Notes}
+	return r, nil
 }
 
 // releaseToolKit builds a kit bound to a task in repoID, with the fake
@@ -731,5 +744,52 @@ func TestGetDeployImpactToolReportsAReadFailure(t *testing.T) {
 	res := newGetDeployImpactTool(releaseToolKit(repoID, fake)).Execute(releaseCtx(repoID, taskID), `{}`)
 	if !res.IsError || !strings.Contains(res.Content, "bindings store unavailable") {
 		t.Fatalf("want the read failure as a tool error, got %+v", res)
+	}
+}
+
+func TestProposeCutToolRecordsAProposalTheChatCanShowAsACard(t *testing.T) {
+	repoID, taskID, releaseID := uuid.New(), uuid.New(), uuid.New()
+	fake := &fakeReleaseService{release: domain.Release{ID: releaseID, RepositoryID: repoID, Status: domain.ReleaseDraft}}
+	tool := newProposeCutTool(releaseToolKit(repoID, fake))
+
+	res := tool.Execute(releaseCtx(repoID, taskID), `{"version":"1.4.0","notes":"Two fixes"}`)
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if fake.gotReleaseID != releaseID || fake.gotActor != domain.ReleaseActorAgent {
+		t.Fatalf("want ProposeCut called with the resolved release as the agent, got id=%s actor=%s", fake.gotReleaseID, fake.gotActor)
+	}
+	if fake.gotCut.Version != "1.4.0" || fake.gotCut.Notes != "Two fixes" {
+		t.Fatalf("want the version and notes passed through, got %+v", fake.gotCut)
+	}
+	action, ok := domain.NewSessionAction(proposeCutToolName, res.Content, false)
+	if !ok {
+		t.Fatalf("want the result to become a chat action card, got: %s", res.Content)
+	}
+	if action.EntityKind != domain.ActionEntityRelease || action.Verb != domain.ActionVerbProposed {
+		t.Errorf("want a proposed release action, got %s %s", action.EntityKind, action.Verb)
+	}
+	if action.EntityID == nil || *action.EntityID != releaseID || action.Title != "1.4.0" {
+		t.Errorf("want the card to carry the release id and the version, got id=%v title=%q", action.EntityID, action.Title)
+	}
+	if action.RepositoryID == nil || *action.RepositoryID != repoID {
+		t.Errorf("want the card to carry the repository, got %v", action.RepositoryID)
+	}
+	if strings.Contains(res.Content, "deploy_release") {
+		t.Errorf("a proposal must not point the model at deploy_release, got: %s", res.Content)
+	}
+}
+
+func TestProposeCutToolSurfacesARefusal(t *testing.T) {
+	repoID, taskID := uuid.New(), uuid.New()
+	fake := &fakeReleaseService{
+		release:    domain.Release{ID: uuid.New(), Status: domain.ReleaseDeploying},
+		proposeErr: fmt.Errorf("%w: a cut can only be proposed for a draft release", domain.ErrReleaseWrongStatus),
+	}
+	tool := newProposeCutTool(releaseToolKit(repoID, fake))
+
+	res := tool.Execute(releaseCtx(repoID, taskID), `{}`)
+	if !res.IsError || !strings.Contains(res.Content, "draft release") {
+		t.Fatalf("want the refusal surfaced, got: %+v", res)
 	}
 }

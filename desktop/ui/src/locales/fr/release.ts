@@ -234,6 +234,18 @@ export const release = {
     recutLabel: "{version} jamais déployée",
     recutRelease: "Recréer",
   },
+  cutProposal: {
+    title: "Release proposée",
+    body: "Le release engineer a préparé cette release à partir de {count} tâches mergées. Rien ne sort tant que vous ne l'avez pas relue et coupée.",
+    review: "Relire et couper",
+    dismiss: "Écarter",
+    dismissedToast: "Proposition écartée",
+    dismissFailed: "Impossible d'écarter la proposition",
+    dismissed: "Cette proposition a été écartée. Le brouillon reste ouvert.",
+    cut: "Coupée en {version} — {status}.",
+    gone: "Cette release n'existe plus.",
+    inline: "Le release engineer propose {version}",
+  },
   cutDialog: {
     title: "Créer la release",
     description: "Choisissez la version et relisez les notes avant de créer cette release.",

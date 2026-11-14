@@ -48,6 +48,7 @@ export const chatArea = {
         attached: "adjuntado",
         linked: "vinculado",
         deleted: "eliminada",
+        proposed: "propuesto",
       },
       entity: {
         board_task: "Tarea",
@@ -56,6 +57,7 @@ export const chatArea = {
         acceptance_criterion: "Criterio de aceptación",
         initiative_project: "Proyecto",
         repository: "Repositorio",
+        release: "Release",
       },
     },
     plan: {

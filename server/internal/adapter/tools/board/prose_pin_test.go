@@ -196,7 +196,7 @@ func TestBoardProsePinnedByteIdentical(t *testing.T) {
 			watchReleaseParkedKey.Render(watchReleaseParkedInput{Version: "v3", Mode: "continuous", Executor: "github_actions", Status: "deploying"}),
 			"Release v3 (continuous/github_actions) is still deploying. This task is parked until it settles and will be picked up again then — nothing further to do in this run.",
 		},
-		{"release_next_draft", releaseNextDraftKey.Render(struct{}{}), "Nothing to do — a human cuts this release when they are ready."},
+		{"release_next_draft", releaseNextDraftKey.Render(struct{}{}), "Nothing to do — a human cuts this release when they are ready. Only if a person asked you in this conversation to ship it: call propose_release_cut, which prepares the cut for their approval."},
 		{
 			"release_next_awaiting_verdict_batch",
 			releaseNextAwaitingVerdictBatchKey.Render(struct{}{}),
@@ -242,7 +242,7 @@ func TestReleaseNextStepDispatch(t *testing.T) {
 		mode   domain.DeliveryMode
 		want   string
 	}{
-		{domain.ReleaseDraft, "", "Nothing to do — a human cuts this release when they are ready."},
+		{domain.ReleaseDraft, "", releaseNextDraftKey.Render(struct{}{})},
 		{domain.ReleaseAwaitingVerdict, domain.DeliveryBatch, releaseNextAwaitingVerdictBatchKey.Render(struct{}{})},
 		{domain.ReleaseAwaitingVerdict, "", releaseNextAwaitingVerdictKey.Render(struct{}{})},
 		{domain.ReleaseFailed, domain.DeliveryBatch, releaseNextFailedBatchKey.Render(struct{}{})},

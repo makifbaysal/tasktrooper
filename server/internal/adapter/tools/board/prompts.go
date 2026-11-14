@@ -122,6 +122,8 @@ type releaseNextUnknownInput struct{ Status string }
 
 var releaseNextUnknownKey = prompt.Define("tool_results.board_release_next_unknown", releaseNextUnknownInput{Status: "x"})
 
+var proposeCutNextKey = prompt.Define("tool_results.board_propose_cut_next", struct{}{})
+
 var deployReleaseNextKey = prompt.Define("tool_results.board_deploy_release_next", struct{}{})
 var finishReleaseDoneKey = prompt.Define("tool_results.board_finish_release_done", struct{}{})
 var rollbackReleaseNextKey = prompt.Define("tool_results.board_rollback_release_next", struct{}{})

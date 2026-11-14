@@ -934,6 +934,21 @@ func (f *fakeReleaseStore) SetRollbackProposal(_ context.Context, id uuid.UUID, 
 	return nil
 }
 
+func (f *fakeReleaseStore) SetCutProposal(_ context.Context, id uuid.UUID, p *domain.CutProposal) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.releases[id]
+	if !ok {
+		return domain.ErrReleaseNotFound
+	}
+	if p != nil && r.Status != domain.ReleaseDraft {
+		return fmt.Errorf("%w: the release is %s", domain.ErrReleaseWrongStatus, r.Status)
+	}
+	r.CutProposal = p
+	f.releases[id] = r
+	return nil
+}
+
 func (f *fakeReleaseStore) DismissRollbackProposal(_ context.Context, id uuid.UUID, proposedAt time.Time, d domain.RollbackDismissal) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

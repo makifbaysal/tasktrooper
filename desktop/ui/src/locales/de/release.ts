@@ -234,6 +234,18 @@ export const release = {
     recutLabel: "{version} nie deployt",
     recutRelease: "Neu schneiden",
   },
+  cutProposal: {
+    title: "Release vorgeschlagen",
+    body: "Der Release Engineer hat dieses Release aus {count} gemergten Tasks vorbereitet. Nichts wird ausgeliefert, bis Sie es prüfen und schneiden.",
+    review: "Prüfen und schneiden",
+    dismiss: "Verwerfen",
+    dismissedToast: "Vorschlag verworfen",
+    dismissFailed: "Der Vorschlag konnte nicht verworfen werden",
+    dismissed: "Dieser Vorschlag wurde verworfen. Der Entwurf ist noch offen.",
+    cut: "Als {version} geschnitten — {status}.",
+    gone: "Dieses Release existiert nicht mehr.",
+    inline: "Release Engineer schlägt {version} vor",
+  },
   cutDialog: {
     title: "Release schneiden",
     description: "Wählen Sie die Version und prüfen Sie die Notizen, bevor Sie dieses Release schneiden.",

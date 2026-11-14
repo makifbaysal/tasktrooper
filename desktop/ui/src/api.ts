@@ -2074,7 +2074,8 @@ export type SessionActionEntity =
   | "task_document"
   | "acceptance_criterion"
   | "initiative_project"
-  | "repository";
+  | "repository"
+  | "release";
 
 /**
  * One board record an agent created or changed inside a chat. Persisted so the
@@ -5371,6 +5372,16 @@ export interface Release {
   /** A person dismissed the proposal; until another issue is put down to the
    * release, the release engineer cannot propose it again. */
   rollback_dismissal?: ReleaseRollbackDismissal | null;
+  /** A cut the release engineer prepared for this draft because a person
+   * asked for one; null once the release is cut or the proposal dismissed. */
+  cut_proposal?: ReleaseCutProposal | null;
+}
+
+export interface ReleaseCutProposal {
+  proposed_at: string;
+  by: string;
+  version: string;
+  notes?: string;
 }
 
 export interface ReleaseRollbackDismissal {
@@ -8578,6 +8589,9 @@ export const api = {
 
   dismissRollbackProposal: (releaseId: string) =>
     request<Release | undefined>(`/v1/releases/${encodeURIComponent(releaseId)}/rollback-proposal/dismiss`, { method: "POST" }),
+
+  dismissCutProposal: (releaseId: string) =>
+    request<Release>(`/v1/releases/${encodeURIComponent(releaseId)}/cut-proposal/dismiss`, { method: "POST" }),
 
   // PATCHes the component with only {delivery}: a value sets the override, null clears it.
   updateComponentDelivery: (componentId: string, delivery: ComponentDelivery | null) =>

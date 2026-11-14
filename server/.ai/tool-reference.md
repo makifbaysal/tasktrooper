@@ -463,6 +463,24 @@ cuts it. If nothing has opened a release for this task, the error says why
 (never merged, the component's mode never opens one, or its delivery profile
 is unconfirmed) instead of a bare not-found.
 
+### `propose_release_cut`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `task_id` | string | no | Board task UUID or board key of any task in the component's draft release. |
+| `version` | string | no | The version to ship as; the suggested next version when left out. |
+| `notes` | string | no | Release notes; generated from the draft's tasks when left out. |
+
+Prepares the cut of a `batch` component's draft release for a person to
+approve, and ships nothing: it stores `cut_proposal` (version, notes) on the
+draft. The call is recorded in the chat's action ledger (`release` /
+`proposed`), which the chat renders as an approval card; the person reviews
+and cuts the release themselves (the same confirm-by-repository-name dialog as
+the Deploy tab) or dismisses it. Refused when the release is not a `draft`,
+carries no task, or its component no longer batches. Only for a person asking
+in a chat to ship the release — never from a card or on the agent's own
+initiative.
+
 ### `deploy_release`
 
 | Parameter | Type | Required | Description |

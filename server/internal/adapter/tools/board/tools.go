@@ -102,6 +102,7 @@ type ReleaseService interface {
 	Finish(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, note string) (domain.Release, error)
 	Rollback(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, reason domain.RollbackReason, note string) (domain.Release, error)
 	Impact(ctx context.Context, releaseID uuid.UUID) (domain.DeployImpact, error)
+	ProposeCut(ctx context.Context, releaseID uuid.UUID, actor domain.ReleaseActor, req domain.ReleaseCutRequest) (domain.Release, error)
 }
 
 type ToolKit struct {
@@ -240,6 +241,7 @@ func NewExecutors(kit *ToolKit) []port.ToolExecutor {
 			newDeployLogsTool(kit),
 			newGetReleaseTool(kit),
 			newDeployReleaseTool(kit),
+			newProposeCutTool(kit),
 			newWatchReleaseTool(kit),
 			newRunSmokeChecksTool(kit),
 			newFinishReleaseTool(kit),

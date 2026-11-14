@@ -61,6 +61,15 @@ export function ReleasesCard({ repositoryId, repositoryName, component, classNam
     void load();
   }, [load]);
 
+  const dismissProposal = async (releaseId: string) => {
+    try {
+      await api.dismissCutProposal(releaseId);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("release.cutProposal.dismissFailed"));
+    }
+  };
+
   const moving = !!releases?.some((r) => RELEASE_ACTIVE_STATUSES.includes(r.status));
   usePolling(load, POLL_MS, moving, { leading: false });
 
@@ -95,10 +104,26 @@ export function ReleasesCard({ repositoryId, repositoryName, component, classNam
                     ? t("release.releases.draftLabel", { count: p.tasks.length })
                     : t("release.releases.recutLabel", { version: p.version })}
                 </span>
+                {p.status === "draft" && p.cut_proposal && (
+                  <span className="text-caption text-primary">
+                    {t("release.cutProposal.inline", { version: p.cut_proposal.version })}
+                  </span>
+                )}
                 {p.tasks.length > 0 && (
-                  <Button size="sm" className="ml-auto" onClick={() => setCutReleaseId(p.id)}>
-                    {p.status === "draft" ? t("release.releases.cutRelease") : t("release.releases.recutRelease")}
-                  </Button>
+                  <div className="ml-auto flex gap-2">
+                    {p.status === "draft" && p.cut_proposal && (
+                      <Button size="sm" variant="ghost" onClick={() => void dismissProposal(p.id)}>
+                        {t("release.cutProposal.dismiss")}
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={() => setCutReleaseId(p.id)}>
+                      {p.status !== "draft"
+                        ? t("release.releases.recutRelease")
+                        : p.cut_proposal
+                          ? t("release.cutProposal.review")
+                          : t("release.releases.cutRelease")}
+                    </Button>
+                  </div>
                 )}
               </div>
             ))}

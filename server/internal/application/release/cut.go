@@ -41,6 +41,13 @@ func (s *Service) CutPreview(ctx context.Context, releaseID uuid.UUID) (domain.R
 
 	previous := s.previousVersion(ctx, repo, r)
 	suggested := suggestNextVersion(previous, r.Tasks)
+	notes := ""
+	if p := r.CutProposal; p != nil {
+		suggested, notes = p.Version, p.Notes
+	}
+	if notes == "" {
+		notes = generateCutNotes(suggested, r.Tasks)
+	}
 
 	tag := ""
 	if suggested != "" {
@@ -52,7 +59,7 @@ func (s *Service) CutPreview(ctx context.Context, releaseID uuid.UUID) (domain.R
 		PreviousVersion:  previous,
 		Tag:              tag,
 		CommitSHA:        sha,
-		Notes:            generateCutNotes(suggested, r.Tasks),
+		Notes:            notes,
 		Tasks:            r.Tasks,
 	}, nil
 }

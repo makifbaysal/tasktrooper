@@ -1,5 +1,6 @@
 import { ArrowUpRight, CheckCircle2, Trash2 } from "lucide-react";
 import type { SessionAction } from "@/api";
+import { ReleaseCutProposalCard } from "@/components/chat/ReleaseCutProposalCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +21,9 @@ interface SessionActionCardProps {
  */
 export function SessionActionCard({ action, onOpenTask, className }: SessionActionCardProps) {
   const { t } = useI18n();
+  if (action.entity_kind === "release") {
+    return <ReleaseCutProposalCard action={action} className={className} />;
+  }
   const entityLabel = t(`chatArea.chat.actions.entity.${action.entity_kind}`);
   const verbLabel = t(`chatArea.chat.actions.verb.${action.verb}`);
   // A deleted record has no detail view left to open, and a success-green card

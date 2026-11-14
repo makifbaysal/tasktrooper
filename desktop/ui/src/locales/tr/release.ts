@@ -235,6 +235,18 @@ export const release: ReleaseDict = {
     recutLabel: "{version} hiç deploy edilmedi",
     recutRelease: "Yeniden kes",
   },
+  cutProposal: {
+    title: "Release önerildi",
+    body: "Release engineer bu release'i merge edilmiş {count} task'tan hazırladı. Siz inceleyip kesene kadar hiçbir şey çıkmaz.",
+    review: "İncele ve çık",
+    dismiss: "Reddet",
+    dismissedToast: "Öneri reddedildi",
+    dismissFailed: "Öneri reddedilemedi",
+    dismissed: "Bu öneri reddedildi. Taslak hâlâ açık.",
+    cut: "{version} olarak kesildi — {status}.",
+    gone: "Bu release artık yok.",
+    inline: "Release engineer {version} öneriyor",
+  },
   cutDialog: {
     title: "Release'i kes",
     description: "Bu release'i kesmeden önce sürümü seç ve notları gözden geçir.",
