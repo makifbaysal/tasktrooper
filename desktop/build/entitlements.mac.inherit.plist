@@ -55,5 +55,13 @@
   -->
   <key>com.apple.security.cs.allow-dyld-environment-variables</key>
   <true/>
+
+  <!--
+    The microphone, for talking to an agent (the page's getUserMedia). The
+    hardened runtime denies audio input without it, silently: the stream
+    opens and records nothing.
+  -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

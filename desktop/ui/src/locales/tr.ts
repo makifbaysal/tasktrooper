@@ -197,6 +197,14 @@ export const tr: Dict = {
       bannerTitle: "TaskTrooper şimdilik hesabın olmadan kullanılıyor",
       bannerBody: "{origin} hesabında oturumun hâlâ açık. Sana orada atanan görevler sen dönene kadar bekler.",
     },
+    voice: {
+      title: "Agent'larla sesli konuşma",
+      help: "Bir sohbette mikrofona basıp konuşun; agent sesli cevap verir, söylediklerini yazar ve gerektiğinde ekrana çizer. Ses, uygulama dili Türkçe veya English iken çalışır. Konuşmanız bu Mac'te tanınır ve Türkçe ses bu Mac'te üretilir; ikisi de bilgisayardan çıkmaz.",
+      unavailable: "Sesli konuşma için macOS ve Türkçe ya da English uygulama dili gerekir.",
+      speed: "Okuma hızı",
+      bargeIn: "Konuşarak sözünü kes",
+      bargeInHelp: "Agent konuşurken siz konuşursanız durur ve sizi dinler.",
+    },
     analytics: {
       label: "Kullanım istatistikleri",
       help: "Hangi ekranları açtığınızı ve hangi özellikleri kullandığınızı, uygulama sürümü ve sistemle birlikte gönderir — görevleriniz, sohbetleriniz, kodunuz, dosya yollarınız veya e-postanız asla gönderilmez. Bir hesapla giriş yaptıysanız hesap kimliğinizin tek yönlü bir özeti de eklenir; böylece masaüstü, web ve mobil uygulamada tek kişi sayılırsınız. Kapatınca gönderim hemen durur ve bu kurulumun rastgele kimliği silinir.",

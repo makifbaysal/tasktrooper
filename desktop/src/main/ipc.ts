@@ -38,6 +38,8 @@ import type {
   ToolchainJobState,
   ToolchainReport,
   UpdateStatus,
+  VoiceCapabilities,
+  VoiceLanguage,
 } from "../ipc/types.js";
 import type { McpServerConsent } from "./keys/keys.js";
 import {
@@ -69,6 +71,10 @@ import {
   validateToolchainId,
   validateToolchainIds,
   validateToolchainReportRequest,
+  validateVoiceId,
+  validateVoiceListenAudio,
+  validateVoiceListenStart,
+  validateVoiceSpeak,
 } from "../ipc/validate.js";
 
 /**
@@ -126,6 +132,14 @@ export interface IpcServices {
   accountMcpConsent(request: McpServerSetRequest): McpServerConsent | null;
   /** The native "Add the MCP server …?" dialog; true when the person agreed. */
   confirmMcpServer(consent: McpServerConsent): Promise<boolean>;
+
+  voiceCapabilities(): Promise<VoiceCapabilities>;
+  voiceListenStart(lang: VoiceLanguage): { id: string };
+  voiceListenAudio(id: string, pcm: Uint8Array): void;
+  voiceListenStop(id: string): void;
+  voiceListenCancel(id: string): void;
+  voiceSpeak(lang: VoiceLanguage, text: string, speed: number): Promise<{ id: string }>;
+  voiceSpeakCancel(id: string): void;
 
   analyticsState(): AnalyticsState;
   setAnalytics(on: boolean): AnalyticsState;
@@ -429,6 +443,28 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.preflight, (payload) => services.preflight(validatePreflightRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.diagnostics, (payload) => services.diagnostics(validateDiagnosticsRequest(payload).force ?? false));
   cloud(CLOUD_CHANNELS.overridesSet, (payload) => services.setOverrides(validateOverrides(payload)));
+
+  // Both modes. The ids are this process's own (validateVoiceId); an id it
+  // does not know is ignored, so a page can only end what it started.
+  cloud(CLOUD_CHANNELS.voiceCapabilities, () => services.voiceCapabilities());
+  cloud(CLOUD_CHANNELS.voiceListenStart, (payload) => services.voiceListenStart(validateVoiceListenStart(payload).lang));
+  cloud(CLOUD_CHANNELS.voiceListenAudio, (payload) => {
+    const { id, pcm } = validateVoiceListenAudio(payload);
+    services.voiceListenAudio(id, pcm);
+  });
+  cloud(CLOUD_CHANNELS.voiceListenStop, (payload) => {
+    services.voiceListenStop(validateVoiceId(payload).id);
+  });
+  cloud(CLOUD_CHANNELS.voiceListenCancel, (payload) => {
+    services.voiceListenCancel(validateVoiceId(payload).id);
+  });
+  cloud(CLOUD_CHANNELS.voiceSpeak, (payload) => {
+    const { lang, text, speed } = validateVoiceSpeak(payload);
+    return services.voiceSpeak(lang, text, speed);
+  });
+  cloud(CLOUD_CHANNELS.voiceSpeakCancel, (payload) => {
+    services.voiceSpeakCancel(validateVoiceId(payload).id);
+  });
 
   // Both modes: Settings → General is the one place this switch lives — the
   // local bundle's, or in account mode the account's own page.

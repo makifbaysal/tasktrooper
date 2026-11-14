@@ -1,0 +1,242 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { createInterface } from "node:readline";
+import { CLOUD_EVENTS } from "../../ipc/channels.js";
+import type { VoiceAudioEvent, VoiceCapabilities, VoiceLanguage, VoiceTranscriptEvent } from "../../ipc/types.js";
+
+/**
+ * Talking to an agent: what the person says becomes text (`listen*`), and what
+ * the agent answers becomes sound (`speak*`). Both stay on this computer.
+ *
+ * Listening is macOS's own recognizer, on-device where the Mac has the model,
+ * through the `tt-speech` helper (`desktop/speech/`): one process per
+ * utterance, 16 kHz mono s16le PCM in on stdin, JSON lines out. The page owns
+ * the microphone (so Chromium's echo cancellation is between the speaker and
+ * what we hear) and streams PCM here.
+ *
+ * Speaking is the embedder's `POST /v1/audio/speech` (Turkish, EMA Lightning,
+ * bundled with the app): raw float32 PCM at 48 kHz, passed to the page chunk
+ * by chunk as it is made. English has no bundled voice yet; the page uses the
+ * OS voice for it.
+ */
+
+export const SPEECH_LOCALES: Record<VoiceLanguage, string> = { tr: "tr-TR", en: "en-US" };
+
+/** An utterance nobody ends is ended for them: the recognizer and the mic stream are not left running. */
+export const MAX_UTTERANCE_MS = 5 * 60_000;
+
+/** A text longer than the embedder accepts; the page sends one sentence or so at a time. */
+export const MAX_SPEAK_CHARS = 4000;
+
+export interface VoiceDeps {
+  platform: NodeJS.Platform;
+  /** The tt-speech binary, or null when this build or OS has none. */
+  speechBinary(): string | null;
+  embedderUrl(): Promise<string | null>;
+  publish(channel: string, payload: unknown): void;
+  fetch?: typeof fetch;
+  spawnSpeech?: (binary: string, args: string[]) => ChildProcessWithoutNullStreams;
+  log?: (line: string) => void;
+}
+
+interface Utterance {
+  child: ChildProcessWithoutNullStreams;
+  timer: NodeJS.Timeout;
+  ended: boolean;
+}
+
+export class VoiceService {
+  readonly #deps: VoiceDeps;
+  readonly #utterances = new Map<string, Utterance>();
+  readonly #speeches = new Map<string, AbortController>();
+
+  constructor(deps: VoiceDeps) {
+    this.#deps = deps;
+  }
+
+  async capabilities(): Promise<VoiceCapabilities> {
+    const canListen = this.#deps.platform === "darwin" && this.#deps.speechBinary() !== null;
+    const url = await this.#deps.embedderUrl();
+    return {
+      listen: { tr: canListen, en: canListen },
+      speak: { tr: url !== null, en: false },
+    };
+  }
+
+  /** One utterance at a time: a new one ends whatever was still listening. */
+  listenStart(lang: VoiceLanguage): { id: string } {
+    const binary = this.#deps.platform === "darwin" ? this.#deps.speechBinary() : null;
+    if (!binary) throw new Error("Speech recognition is not available on this computer.");
+    for (const id of [...this.#utterances.keys()]) this.listenCancel(id);
+
+    const id = randomUUID();
+    const spawnSpeech = this.#deps.spawnSpeech ?? ((bin, args) => spawn(bin, args, { shell: false, stdio: "pipe" }));
+    const child = spawnSpeech(binary, [SPEECH_LOCALES[lang]]);
+    const utterance: Utterance = {
+      child,
+      ended: false,
+      timer: setTimeout(() => this.listenStop(id), MAX_UTTERANCE_MS),
+    };
+    utterance.timer.unref?.();
+    this.#utterances.set(id, utterance);
+
+    let finished = false;
+    const finish = (event: VoiceTranscriptEvent): void => {
+      if (finished) return;
+      finished = true;
+      this.#publishTranscript(event);
+    };
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      const event = parseHelperLine(id, line);
+      if (!event) return;
+      if (event.type === "partial" || event.type === "ready") this.#publishTranscript(event);
+      else finish(event);
+    });
+    child.stdin.on("error", () => {
+      // The helper exited first (an error it already reported); writes after
+      // that have nowhere to go.
+    });
+    child.on("error", (err) => {
+      finish({ id, type: "error", code: "spawn", message: err.message });
+      this.#drop(id);
+    });
+    child.on("exit", (code, signal) => {
+      if (code !== 0 && !signal) {
+        finish({ id, type: "error", code: "exit", message: `speech recognition stopped (${code ?? "?"})` });
+      } else {
+        finish({ id, type: "final", text: "" });
+      }
+      this.#drop(id);
+    });
+    return { id };
+  }
+
+  listenAudio(id: string, pcm: Uint8Array): void {
+    const utterance = this.#utterances.get(id);
+    if (!utterance || utterance.ended || utterance.child.stdin.destroyed) return;
+    utterance.child.stdin.write(pcm);
+  }
+
+  /** The person is done talking: the recognizer gets end-of-audio and answers with its final text. */
+  listenStop(id: string): void {
+    const utterance = this.#utterances.get(id);
+    if (!utterance || utterance.ended) return;
+    utterance.ended = true;
+    utterance.child.stdin.end();
+  }
+
+  listenCancel(id: string): void {
+    const utterance = this.#utterances.get(id);
+    if (!utterance) return;
+    this.#drop(id);
+    utterance.child.kill("SIGTERM");
+  }
+
+  /** Starts speaking `text`; the audio arrives as `voice:audio` events carrying the returned id. */
+  async speak(lang: VoiceLanguage, text: string, speed: number): Promise<{ id: string }> {
+    if (lang !== "tr") throw new Error(`No bundled voice for ${lang}.`);
+    const base = await this.#deps.embedderUrl();
+    if (!base) throw new Error("The voice engine is not running.");
+    const id = randomUUID();
+    const controller = new AbortController();
+    this.#speeches.set(id, controller);
+    void this.#stream(id, base, text, speed, controller.signal);
+    return { id };
+  }
+
+  speakCancel(id: string): void {
+    this.#speeches.get(id)?.abort();
+    this.#speeches.delete(id);
+  }
+
+  /** Quit: no helper or request outlives the app. */
+  stopAll(): void {
+    for (const id of [...this.#utterances.keys()]) this.listenCancel(id);
+    for (const id of [...this.#speeches.keys()]) this.speakCancel(id);
+  }
+
+  async #stream(id: string, base: string, text: string, speed: number, signal: AbortSignal): Promise<void> {
+    const doFetch = this.#deps.fetch ?? fetch;
+    try {
+      const res = await doFetch(`${base}/v1/audio/speech`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: text, voice: "tr", speed }),
+        signal,
+      });
+      if (!res.ok || !res.body) throw new Error(`voice engine answered ${res.status}`);
+      const sampleRate = Number(res.headers.get("x-sample-rate")) || 48_000;
+      const reader = res.body.getReader();
+      // A network chunk can split a float; carry the odd bytes to the next one.
+      let carry = new Uint8Array(0);
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const bytes = concat(carry, value);
+        const whole = bytes.length - (bytes.length % 4);
+        carry = bytes.slice(whole);
+        if (whole > 0) this.#publishAudio({ id, sampleRate, pcm: bytes.slice(0, whole).buffer });
+      }
+      this.#publishAudio({ id, sampleRate, done: true });
+    } catch (err) {
+      if (!signal.aborted) {
+        this.#deps.log?.(`[voice] speak failed: ${err instanceof Error ? err.message : String(err)}`);
+        this.#publishAudio({ id, sampleRate: 48_000, done: true, error: "The voice engine could not read this." });
+      }
+    } finally {
+      this.#speeches.delete(id);
+    }
+  }
+
+  #drop(id: string): void {
+    const utterance = this.#utterances.get(id);
+    if (!utterance) return;
+    clearTimeout(utterance.timer);
+    this.#utterances.delete(id);
+  }
+
+  #publishTranscript(event: VoiceTranscriptEvent): void {
+    this.#deps.publish(CLOUD_EVENTS.voiceTranscript, event);
+  }
+
+  #publishAudio(event: VoiceAudioEvent): void {
+    this.#deps.publish(CLOUD_EVENTS.voiceAudio, event);
+  }
+}
+
+export function parseHelperLine(id: string, line: string): VoiceTranscriptEvent | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const obj = raw as Record<string, unknown>;
+  const text = typeof obj.text === "string" ? obj.text : "";
+  switch (obj.type) {
+    case "ready":
+      return { id, type: "ready" };
+    case "partial":
+      return { id, type: "partial", text };
+    case "final":
+      return { id, type: "final", text };
+    case "error":
+      return {
+        id,
+        type: "error",
+        code: typeof obj.code === "string" ? obj.code : "recognition",
+        message: typeof obj.message === "string" ? obj.message : "speech recognition failed",
+      };
+    default:
+      return null;
+  }
+}
+
+function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
+  if (a.length === 0) return b;
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+}

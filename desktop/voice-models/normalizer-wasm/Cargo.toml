@@ -1,0 +1,23 @@
+[package]
+name = "normalizer-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# normalizer-tr (Apache-2.0, Erdem Tuna) compiled to a dependency-free
+# wasm32-unknown-unknown module with a four-function C ABI: alloc, dealloc,
+# normalize, out_ptr. See ../README.md.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+normalizer-tr = { git = "https://github.com/erdemtuna/normalizer-tr", rev = "62264b76d213a878666fa5ea0559744b823e28a5" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[workspace]

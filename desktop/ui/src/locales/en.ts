@@ -198,6 +198,14 @@ export const en = {
       bannerTitle: "Using TaskTrooper without your account for now",
       bannerBody: "You are still signed in to {origin}. Tasks assigned to you there wait until you go back.",
     },
+    voice: {
+      title: "Talking to agents",
+      help: "Press the microphone in a chat and talk; the agent answers out loud, writes what it says, and draws on the screen when that helps. Voice works when the app language is Türkçe or English. Speech is recognized on this Mac and the Turkish voice runs on it, so neither leaves this computer.",
+      unavailable: "Voice needs macOS, and the app language set to Türkçe or English.",
+      speed: "Reading speed",
+      bargeIn: "Interrupt by talking",
+      bargeInHelp: "Talking while the agent speaks stops it and it listens to you.",
+    },
     analytics: {
       label: "Usage statistics",
       help: "Sends which screens you open and which features you use, with the app version and system — never your tasks, chats, code, paths or email. Signed in to an account, a one-way hash of your account ID goes with it, so you count as one person across the desktop, web and mobile apps. Turning it off stops sending at once and deletes this install's random ID.",

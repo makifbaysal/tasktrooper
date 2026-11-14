@@ -30,6 +30,7 @@ import {
   type NotificationPreferences,
   type RunnerPairingBundle,
   type UserSettings,
+  type VoiceLanguage,
 } from "./types.js";
 import type {
   AccountSignInRequest,
@@ -737,4 +738,58 @@ export function validateRemoteAccessNgrokConnect(raw: unknown): RemoteAccessNgro
   if (o.authtoken !== undefined) out.authtoken = asSecretToken(o.authtoken, "remoteAccess.ngrok.authtoken");
   if (o.apiKey !== undefined) out.apiKey = asSecretToken(o.apiKey, "remoteAccess.ngrok.apiKey");
   return out;
+}
+
+// --- voice --------------------------------------------------------------------
+
+const VOICE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** 16 kHz s16le is 32 KB a second; the page sends about ten chunks a second. */
+const VOICE_AUDIO_MAX_BYTES = 64 * 1024;
+const VOICE_SPEAK_MAX_CHARS = 4000;
+
+function asVoiceLanguage(value: unknown, what: string): VoiceLanguage {
+  if (value === "tr" || value === "en") return value;
+  fail(`${what} must be "tr" or "en"`);
+}
+
+function asVoiceId(value: unknown, what: string): string {
+  if (typeof value === "string" && VOICE_ID.test(value)) return value;
+  fail(`${what} must be an id this app issued`);
+}
+
+export function validateVoiceListenStart(raw: unknown): { lang: VoiceLanguage } {
+  const o = asRecord(raw, "voice");
+  return { lang: asVoiceLanguage(o.lang, "voice.lang") };
+}
+
+export function validateVoiceId(raw: unknown): { id: string } {
+  const o = asRecord(raw, "voice");
+  return { id: asVoiceId(o.id, "voice.id") };
+}
+
+export function validateVoiceListenAudio(raw: unknown): { id: string; pcm: Uint8Array } {
+  const o = asRecord(raw, "voice");
+  const id = asVoiceId(o.id, "voice.id");
+  const pcm = o.pcm;
+  const bytes =
+    pcm instanceof ArrayBuffer ? new Uint8Array(pcm) : pcm instanceof Uint8Array ? pcm : fail("voice.pcm must be bytes");
+  if (bytes.byteLength === 0 || bytes.byteLength > VOICE_AUDIO_MAX_BYTES || bytes.byteLength % 2 !== 0) {
+    fail(`voice.pcm must be 2 to ${VOICE_AUDIO_MAX_BYTES} bytes of 16-bit samples`);
+  }
+  return { id, pcm: bytes };
+}
+
+export function validateVoiceSpeak(raw: unknown): { lang: VoiceLanguage; text: string; speed: number } {
+  const o = asRecord(raw, "voice");
+  const lang = asVoiceLanguage(o.lang, "voice.lang");
+  const text = asString(o.text, "voice.text", { max: VOICE_SPEAK_MAX_CHARS });
+  if (!text.trim()) fail("voice.text must not be empty");
+  let speed = 1;
+  if (o.speed !== undefined) {
+    if (typeof o.speed !== "number" || !Number.isFinite(o.speed) || o.speed < 0.5 || o.speed > 2) {
+      fail("voice.speed must be a number from 0.5 to 2");
+    }
+    speed = o.speed;
+  }
+  return { lang, text, speed };
 }

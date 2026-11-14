@@ -1,7 +1,10 @@
+import { statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { downloadAllWithRetry } from "./download.js";
 import { createEmbeddingsServer, DEFAULT_IDLE_UNLOAD_MS } from "./server.js";
+import { VOICE_DIR_NAME, VOICE_FILES } from "./tts/files.js";
+import { startSpeechWorker } from "./tts/speech-worker.js";
 import { armParentWatchdog } from "./watchdog.js";
 import { defaultWasmThreads, startWorkerEngine } from "./worker-engine.js";
 
@@ -16,6 +19,11 @@ import { defaultWasmThreads, startWorkerEngine } from "./worker-engine.js";
  * time a request needs it. A machine that never indexes anything never pays
  * the ~650 MB a loaded model costs, and an idle unload terminates that worker,
  * which is the only thing that gives wasm memory back.
+ *
+ * The Turkish voice is not downloaded: its files ship in `voice/` beside this
+ * bundle (staged by scripts/build-embedder.mjs, hash-checked there), the same
+ * relative place in a dev build and a packaged one. It loads in a worker of
+ * its own on the first `/v1/audio/speech` and idles out like the model does.
  *
  * Spawned as `process.execPath <this file> --cache-dir <userData>` with
  * `ELECTRON_RUN_AS_NODE=1` (see `main/supervisor/supervisor.ts`), which is
@@ -55,6 +63,21 @@ function wasmThreads(raw: string | undefined): number {
   return defaultWasmThreads(os.availableParallelism());
 }
 
+/**
+ * The voice's files, when every one is there at its pinned size. The hashes
+ * were checked by the build that put them there; a size is the cheap check
+ * that catches a truncated copy without reading 36 MB at every launch.
+ */
+function voiceFilesPresent(dir: string): boolean {
+  return VOICE_FILES.every((file) => {
+    try {
+      return statSync(path.join(dir, file.name)).size === file.sizeBytes;
+    } catch {
+      return false;
+    }
+  });
+}
+
 function main(): void {
   const cacheDir = parseCacheDir(process.argv.slice(2));
 
@@ -66,9 +89,17 @@ function main(): void {
   const workerScript = path.join(__dirname, "worker.cjs");
   const numThreads = wasmThreads(process.env.EMBEDDER_THREADS);
 
-  const { server, enableLoading } = createEmbeddingsServer({
+  const { server, enableLoading, enableSpeech } = createEmbeddingsServer({
     idleUnloadMs: idleUnloadMs(process.env.EMBEDDER_IDLE_UNLOAD_MS),
   });
+
+  const voiceDir = path.join(__dirname, VOICE_DIR_NAME);
+  if (voiceFilesPresent(voiceDir)) {
+    const speechScript = path.join(__dirname, "tts-worker.cjs");
+    enableSpeech(() => startSpeechWorker(speechScript, { voiceDir, wasmDir, numThreads }));
+  } else {
+    log.warn(`the voice files are missing or incomplete in ${voiceDir}; /v1/audio/speech answers 503.`);
+  }
 
   let shuttingDown = false;
   const shutdown = (): void => {

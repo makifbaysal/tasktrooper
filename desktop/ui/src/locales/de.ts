@@ -196,6 +196,14 @@ export const de: Dict = {
       bannerTitle: "TaskTrooper läuft vorerst ohne dein Konto",
       bannerBody: "Du bist weiterhin bei {origin} angemeldet. Dir dort zugewiesene Aufgaben warten, bis du zurückkehrst.",
     },
+    voice: {
+      title: "Mit Agenten sprechen",
+      help: "Tippe in einem Chat auf das Mikrofon und sprich; der Agent antwortet laut, schreibt mit und zeichnet auf den Bildschirm, wenn es hilft. Sprache funktioniert mit der App-Sprache Türkçe oder English. Gesprochenes wird auf diesem Mac erkannt und verlässt ihn nicht.",
+      unavailable: "Sprache braucht macOS und die App-Sprache Türkçe oder English.",
+      speed: "Lesegeschwindigkeit",
+      bargeIn: "Durch Sprechen unterbrechen",
+      bargeInHelp: "Sprichst du, während der Agent spricht, hört er auf und hört dir zu.",
+    },
     analytics: {
       label: "Nutzungsstatistik",
       help: "Sendet, welche Bildschirme Sie öffnen und welche Funktionen Sie nutzen, mit App-Version und System – niemals Ihre Aufgaben, Chats, Ihren Code, Pfade oder Ihre E-Mail. Sind Sie mit einem Konto angemeldet, wird ein Einweg-Hash Ihrer Konto-ID mitgesendet, damit Sie in Desktop-, Web- und Mobil-App als eine Person zählen. Beim Ausschalten wird das Senden sofort gestoppt und die zufällige ID dieser Installation gelöscht.",

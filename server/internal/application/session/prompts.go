@@ -57,3 +57,28 @@ func workspaceSystemMessage(workspaceDir string) domain.Message {
 func languageSystemMessage(lang string) domain.Message {
 	return domain.Message{Role: domain.RoleSystem, Content: prompt.LanguageInstruction(lang)}
 }
+
+var voiceModeKey = prompt.Define("session.voice_mode", struct{ Language string }{Language: "Turkish"})
+
+var voiceLanguages = map[string]string{"tr": "Turkish", "en": "English"}
+
+// appendVoiceModePrompt tells the agent its reply is read aloud. It goes last
+// among the system messages so it outranks the general formatting guidance
+// that asks for markdown.
+func appendVoiceModePrompt(history []domain.Message, voice string) []domain.Message {
+	language, ok := voiceLanguages[voice]
+	if !ok {
+		return history
+	}
+	content := voiceModeKey.Render(struct{ Language string }{Language: language})
+	last := 0
+	for i, m := range history {
+		if m.Role == domain.RoleSystem {
+			last = i + 1
+		}
+	}
+	out := make([]domain.Message, 0, len(history)+1)
+	out = append(out, history[:last]...)
+	out = append(out, domain.Message{Role: domain.RoleSystem, Content: content})
+	return append(out, history[last:]...)
+}

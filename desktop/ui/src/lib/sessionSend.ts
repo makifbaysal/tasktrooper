@@ -166,6 +166,7 @@ async function streamSessionMessage(
     orchestrate?: boolean;
     mentions?: MessageMention[];
     attachmentIds?: string[];
+    voice?: "tr" | "en";
     signal?: AbortSignal;
   },
   onProgress: (progress: StreamProgress) => void,
@@ -241,13 +242,15 @@ export async function sendSessionMessageWithRecovery(
     onProgress?: (progress: StreamProgress) => void;
     /** Cancels the send — and, on the streaming path, the run behind it. */
     signal?: AbortSignal;
+    /** Spoken turn: the reply is shaped to be read aloud in this language (streaming path only). */
+    voice?: "tr" | "en";
   },
 ): Promise<SendSessionMessageResult> {
-  const { fileIds, orchestrate, baselineAssistantCount, mentions, attachmentIds, onProgress, signal } = options;
+  const { fileIds, orchestrate, baselineAssistantCount, mentions, attachmentIds, onProgress, signal, voice } = options;
   const deadline = Date.now() + MAX_WAIT_MS;
 
   const send = onProgress
-    ? streamSessionMessage(sessionId, content, { fileIds, orchestrate, mentions, attachmentIds, signal }, onProgress)
+    ? streamSessionMessage(sessionId, content, { fileIds, orchestrate, mentions, attachmentIds, voice, signal }, onProgress)
     : api.sendMessage(sessionId, content, fileIds, orchestrate, mentions, attachmentIds);
   const sendTask = send.then((response) => ({
     kind: "send" as const,

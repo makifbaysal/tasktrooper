@@ -6686,10 +6686,12 @@ export const api = {
       orchestrate?: boolean;
       mentions?: MessageMention[];
       attachmentIds?: string[];
+      /** The user spoke this and hears the reply, in this language. */
+      voice?: "tr" | "en";
       signal?: AbortSignal;
     } = {},
   ): AsyncGenerator<ChatStreamEvent> {
-    const { fileIds, orchestrate, mentions, attachmentIds, signal } = options;
+    const { fileIds, orchestrate, mentions, attachmentIds, voice, signal } = options;
     const res = await fetchWithTimeout(apiUrl(`/v1/sessions/${sessionId}/messages`), {
       method: "POST",
       headers: authHeaders({
@@ -6704,6 +6706,7 @@ export const api = {
         ...(orchestrate ? { orchestrate: true } : {}),
         ...(mentions && mentions.length > 0 ? { mentions } : {}),
         ...(attachmentIds && attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : {}),
+        ...(voice ? { voice } : {}),
       }),
       signal,
     });

@@ -109,6 +109,10 @@ type SessionMessageRequest struct {
 	// (RAG context, chunked text) the image ones go to the model as native
 	// multimodal content; documents are linked but not sent.
 	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	// Voice is set when the user spoke this message and hears the reply: the
+	// language of the voice that reads it out ("tr" or "en"). Any other value
+	// is ignored. Never persisted; it shapes only this turn's reply.
+	Voice string `json:"voice,omitempty"`
 	// ToolCeiling, when set, narrows the turn's tools to these names after
 	// the agent's own policy is applied (CeilToolPolicy). Never read from a
 	// request body and never persisted, so a turn carrying one is never

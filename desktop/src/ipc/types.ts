@@ -786,3 +786,31 @@ export interface RemoteAccessState {
   /** The port the server's remote listener asks for first (it stays the same between launches). */
   suggestedPort: number;
 }
+
+// --- voice ------------------------------------------------------------------
+
+/** The languages a person can talk to an agent in. Anything else has no voice. */
+export type VoiceLanguage = "tr" | "en";
+
+export interface VoiceCapabilities {
+  /** This computer can turn speech in this language into text (macOS's recognizer). */
+  listen: Record<VoiceLanguage, boolean>;
+  /** A bundled voice reads this language; false means the page falls back to the OS voice. */
+  speak: Record<VoiceLanguage, boolean>;
+}
+
+/** Speech recognition for one utterance, pushed as it happens. */
+export type VoiceTranscriptEvent =
+  | { id: string; type: "ready" }
+  | { id: string; type: "partial" | "final"; text: string }
+  | { id: string; type: "error"; code: string; message: string };
+
+/** A piece of spoken audio: little-endian float32 mono PCM, or the end of that speech. */
+export interface VoiceAudioEvent {
+  id: string;
+  sampleRate: number;
+  pcm?: ArrayBuffer;
+  done?: boolean;
+  /** English, for the person; set only with `done`. */
+  error?: string;
+}

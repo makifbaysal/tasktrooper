@@ -196,6 +196,14 @@ export const es: Dict = {
       bannerTitle: "Usando TaskTrooper sin tu cuenta por ahora",
       bannerBody: "Sigues con la sesión iniciada en {origin}. Las tareas que te asignen allí esperan hasta que vuelvas.",
     },
+    voice: {
+      title: "Hablar con los agentes",
+      help: "Pulsa el micrófono en un chat y habla; el agente responde en voz alta, escribe lo que dice y dibuja en pantalla cuando ayuda. La voz funciona con la app en Türkçe o English. El habla se reconoce en este Mac y no sale de él.",
+      unavailable: "La voz necesita macOS y el idioma de la app en Türkçe o English.",
+      speed: "Velocidad de lectura",
+      bargeIn: "Interrumpir hablando",
+      bargeInHelp: "Si hablas mientras el agente habla, se detiene y te escucha.",
+    },
     analytics: {
       label: "Estadísticas de uso",
       help: "Envía qué pantallas abres y qué funciones usas, con la versión de la app y el sistema; nunca tus tareas, chats, código, rutas ni tu correo. Con una cuenta iniciada, se añade un hash unidireccional de tu ID de cuenta para contarte como una sola persona en las apps de escritorio, web y móvil. Al desactivarlo se deja de enviar al instante y se borra el ID aleatorio de esta instalación.",

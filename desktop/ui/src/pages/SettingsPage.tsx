@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/api";
 import { AccountCard } from "@/components/runner/AccountCard";
 import { AnalyticsCard } from "@/components/runner/AnalyticsCard";
+import { VoiceCard } from "@/components/runner/VoiceCard";
 import { AppUpdatesCard } from "@/components/runner/AppUpdatesCard";
 import { WhatsNewCard } from "@/components/runner/WhatsNewCard";
 import { SettingsSection } from "@/components/layout/SettingsSection";
@@ -403,6 +404,7 @@ export function SettingsPage() {
         <SettingsSection title={t("settings.sections.app.title")} description={t("settings.sections.app.description")}>
           <AppUpdatesCard />
           <WhatsNewCard />
+          <VoiceCard />
           <AnalyticsCard />
         </SettingsSection>
       ) : (

@@ -196,6 +196,14 @@ export const zh: Dict = {
       bannerTitle: "暂时在没有账户的情况下使用 TaskTrooper",
       bannerBody: "你仍然登录在 {origin}。分配给你的任务会等你回来。",
     },
+    voice: {
+      title: "与智能体语音对话",
+      help: "在对话中点击麦克风并说话；智能体会大声回答、同步显示文字，并在有帮助时在屏幕上绘图。应用语言为 Türkçe 或 English 时可用语音。语音在本机识别，不会离开这台电脑。",
+      unavailable: "语音需要 macOS，且应用语言为 Türkçe 或 English。",
+      speed: "朗读速度",
+      bargeIn: "说话即可打断",
+      bargeInHelp: "智能体说话时你开口，它会停下来听你说。",
+    },
     analytics: {
       label: "使用统计",
       help: "发送你打开了哪些页面、使用了哪些功能，以及应用版本和系统——绝不包含你的任务、对话、代码、路径或邮箱。登录账号时，会附带账号 ID 的单向哈希，使你在桌面端、网页端和移动端只算作一个人。关闭后会立即停止发送，并删除此安装的随机 ID。",

@@ -103,6 +103,7 @@ jobs:
           npm run build:executor:universal
           npm run build:runner:universal
           npm run build:embedder
+          npm run build:speech
 
       # @electron/notarize wants APPLE_API_KEY to be a *path* to the .p8 and the
       # secret holds base64 of it. `-c.mac.identity=-` is ad-hoc signing, not
@@ -159,7 +160,7 @@ jobs:
           app="release/mac-universal/TaskTrooper.app"
           [ -d "$app" ] || { echo "::error::$app was not produced"; exit 1; }
           codesign --verify --deep --strict --verbose=2 "$app"
-          for f in Contents/Resources/bin/agent-server Contents/Resources/web/index.html Contents/Resources/embedder/index.cjs; do
+          for f in Contents/Resources/bin/agent-server Contents/Resources/bin/tt-speech Contents/Resources/web/index.html Contents/Resources/embedder/index.cjs Contents/Resources/embedder/voice/ema_sound.onnx; do
             [ -e "$app/$f" ] || { echo "::error title=Missing from the bundle::$f"; exit 1; }
           done
           lipo -archs "$app/Contents/Resources/bin/agent-server"

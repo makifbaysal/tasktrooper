@@ -1,8 +1,9 @@
-import { memo, useMemo } from "react";
+import { Children, isValidElement, memo, useMemo, type ReactElement } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useI18n } from "@/hooks/useI18n";
 import { cn } from "@/lib/utils";
+import { VisualFrame } from "./VisualFrame";
 
 interface MdNode {
   type: string;
@@ -27,6 +28,16 @@ function remarkDropHtmlComments() {
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkDropHtmlComments];
+
+function visualSource(children: React.ReactNode): string | null {
+  const only = Children.toArray(children)[0];
+  if (!isValidElement(only)) return null;
+  const props = (only as ReactElement<{ className?: string; children?: React.ReactNode }>).props;
+  if (!/\blanguage-visual\b/.test(props.className ?? "")) return null;
+  return Children.toArray(props.children)
+    .map((c) => (typeof c === "string" ? c : ""))
+    .join("");
+}
 
 interface MarkdownContentProps {
   content: string;
@@ -63,6 +74,12 @@ export const MarkdownContent = memo(function MarkdownContent({ content, classNam
           <table {...props} />
         </div>
       ),
+      // ```visual blocks are drawings the agent made for the reader (a voice
+      // reply's diagrams, mainly): rendered, not shown as source.
+      pre: ({ node: _node, children, ...props }) => {
+        const visual = visualSource(children);
+        return visual === null ? <pre {...props}>{children}</pre> : <VisualFrame source={visual} />;
+      },
     }),
     [t],
   );

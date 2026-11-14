@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChatTaskDrawer } from "@/components/chat/ChatTaskDrawer";
 import { Composer } from "@/components/chat/Composer";
+import { VoiceBar } from "@/components/chat/VoiceBar";
 import { PendingWakesBar } from "@/components/chat/PendingWakesBar";
 import type { MentionOption } from "@/components/chat/MentionMenu";
 import { MessageList } from "@/components/chat/MessageList";
@@ -24,6 +25,7 @@ import { LeadChatHeader } from "@/components/chat/LeadChatHeader";
 import { PageHeader } from "@/components/admin/PageHeader";
 import { useWorkspaceOutlet } from "@/hooks/useWorkspaceOutlet";
 import { useI18n } from "@/hooks/useI18n";
+import { useVoiceConversation } from "@/hooks/useVoiceConversation";
 import { useMentionOptions } from "@/hooks/useMentionOptions";
 import { useAgentSessions } from "@/hooks/useAgentSessions";
 import { usePolling } from "@/hooks/usePolling";
@@ -68,10 +70,12 @@ interface SendOptions {
   attachments?: AttachmentMeta[];
   fileIds?: string[];
   fromQueue?: boolean;
+  /** Spoken by the person; the reply is read back to them in this language. */
+  voice?: "tr" | "en";
 }
 
 export function AgentChatPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { agentId, sessionId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -385,7 +389,11 @@ export function AgentChatPage() {
       selectedMentionsRef.current = [];
       return;
     }
-    if (sending) return;
+    if (sending) {
+      // A spoken turn has nobody looking at the composer to retry it.
+      if (options.voice) voiceRef.current.replyDone(null);
+      return;
+    }
     if (ownsComposer) setInput("");
     setSending(true);
     setStreamingContent(null);
@@ -436,9 +444,11 @@ export function AgentChatPage() {
         orchestrate: getStoredOrchestrate(),
         baselineAssistantCount,
         mentions,
+        voice: options.voice,
         signal: abort.signal,
         onProgress: (progress) => {
           if (!stillHere()) return;
+          if (options.voice) voiceRef.current.replyProgress(progress.pending);
           // Mirrored into a plain local as well: the commit below runs in this
           // same closure and needs the final list, which the state variable
           // captured at render time cannot give it.
@@ -456,6 +466,7 @@ export function AgentChatPage() {
       // The last assistant row is that message: the transcript was just reloaded
       // and this reply is what was appended to it.
       const answered = [...result.messages].reverse().find((m) => m.role === "assistant");
+      if (options.voice) voiceRef.current.replyDone(answered?.content ?? null);
       if (answered && reasoningSoFar.length > 0) {
         const segments = reasoningSoFar;
         setReasoningByMessageId((prev) => ({ ...prev, [answered.id]: segments }));
@@ -478,6 +489,7 @@ export function AgentChatPage() {
       void refreshSessions();
       await loadSessionActivity();
     } catch (e) {
+      if (options.voice) voiceRef.current.replyDone(null);
       // We cancelled this ourselves (session switch, or the user left the
       // chat); there is nothing to report and nothing left to render into.
       if (isAbortError(e)) return;
@@ -648,6 +660,27 @@ export function AgentChatPage() {
   handleSendRef.current = handleSend;
   const handleStopRef = useRef(handleStop);
   handleStopRef.current = handleStop;
+  const voice = useVoiceConversation(lang, {
+    onUtterance: (text, voiceLang) => void handleSendRef.current({ content: text, voice: voiceLang }),
+    onInterrupt: () => {
+      if (streamAbortRef.current) void handleStopRef.current();
+    },
+  });
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  useEffect(() => {
+    const error = voice.snapshot.error;
+    if (!error) return;
+    toast.error(
+      error === "microphone-denied"
+        ? t("chatArea.voice.error.micDenied")
+        : error === "microphone-missing"
+          ? t("chatArea.voice.error.micMissing")
+          : t("chatArea.voice.error.generic", { message: error }),
+    );
+  }, [voice.snapshot.error, t]);
+  // Leaving the chat ends the conversation; the hook stops it on unmount.
+  useEffect(() => voice.stop, [activeSessionId, voice.stop]);
   const submitClarification = useCallback((answer: string) => void handleSendRef.current({ content: answer }), []);
   const stopTurn = useCallback(() => void handleStopRef.current(), []);
   const openActionTask = useCallback((action: SessionAction) => setOpenTaskId(action.entity_id ?? null), []);
@@ -728,6 +761,7 @@ export function AgentChatPage() {
                 onRemoveQueued={removeQueued}
               />
               <PendingWakesBar sessionId={activeSessionId} />
+              {voice.active && <VoiceBar snapshot={voice.snapshot} onEnd={voice.stop} />}
               <Composer
                 value={input}
                 onChange={setInput}
@@ -736,6 +770,7 @@ export function AgentChatPage() {
                 queueing
                 onStop={stopTurn}
                 stopping={stopping}
+                onStartVoice={voice.available && !voice.active ? voice.start : undefined}
                 files={files}
                 selectedFileIds={selectedFileIds}
                 onToggleFile={(id, checked) =>

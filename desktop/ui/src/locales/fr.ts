@@ -196,6 +196,14 @@ export const fr: Dict = {
       bannerTitle: "TaskTrooper fonctionne sans votre compte pour l'instant",
       bannerBody: "Vous êtes toujours connecté à {origin}. Les tâches qui vous y sont assignées attendent votre retour.",
     },
+    voice: {
+      title: "Parler aux agents",
+      help: "Appuyez sur le micro dans une discussion et parlez ; l'agent répond à voix haute, écrit ce qu'il dit et dessine à l'écran quand c'est utile. La voix fonctionne avec l'app en Türkçe ou English. La parole est reconnue sur ce Mac et n'en sort pas.",
+      unavailable: "La voix nécessite macOS et la langue de l'app en Türkçe ou English.",
+      speed: "Vitesse de lecture",
+      bargeIn: "Interrompre en parlant",
+      bargeInHelp: "Si vous parlez pendant que l'agent parle, il s'arrête et vous écoute.",
+    },
     analytics: {
       label: "Statistiques d'utilisation",
       help: "Envoie les écrans que vous ouvrez et les fonctions que vous utilisez, avec la version de l'application et le système — jamais vos tâches, conversations, code, chemins ni votre e-mail. Connecté à un compte, un hachage à sens unique de votre identifiant de compte est ajouté, pour vous compter comme une seule personne sur les applications de bureau, web et mobile. La désactivation arrête l'envoi immédiatement et supprime l'identifiant aléatoire de cette installation.",

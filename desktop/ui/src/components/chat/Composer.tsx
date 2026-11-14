@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CircleStop, ListPlus, Paperclip, Send } from "lucide-react";
+import { CircleStop, ListPlus, Mic, Paperclip, Send } from "lucide-react";
 import { toast } from "sonner";
 import type { AttachmentMeta, FileRecord } from "@/api";
 import { AttachmentDropzone, uploadAttachmentFiles } from "@/components/attachments/AttachmentDropzone";
@@ -42,6 +42,8 @@ interface ComposerProps {
    * message instead, and Stop sits beside it rather than replacing it.
    */
   queueing?: boolean;
+  /** Present = this computer can talk with the agent; the mic button starts a voice conversation. */
+  onStartVoice?: () => void;
 }
 
 export function Composer({
@@ -59,6 +61,7 @@ export function Composer({
   onStop,
   stopping = false,
   queueing = false,
+  onStartVoice,
 }: ComposerProps) {
   const { t } = useI18n();
   const [pastingAttachment, setPastingAttachment] = useState(false);
@@ -152,6 +155,17 @@ export function Composer({
               onPendingAttachmentsChange?.([...pendingAttachments, ...metas])
             }
           />
+        )}
+        {onStartVoice && (
+          <Button
+            onClick={onStartVoice}
+            size="icon"
+            variant="outline"
+            title={t("chatArea.voice.start")}
+            aria-label={t("chatArea.voice.start")}
+          >
+            <Mic className="h-4 w-4" />
+          </Button>
         )}
         {/* One slot, two jobs: while the agent is answering, the only useful
             action on it is stopping — a disabled send button gave the user no way

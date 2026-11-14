@@ -313,6 +313,19 @@ export const CLOUD_CHANNELS = {
   /** Saves the ngrok authtoken (and optional API key) once ngrok accepted them. */
   remoteAccessNgrokConnect: "cloud:remote-access:ngrok-connect",
   remoteAccessNgrokDisconnect: "cloud:remote-access:ngrok-disconnect",
+
+  /**
+   * Talking to an agent, in both modes. The page holds the microphone and
+   * sends 16 kHz PCM; main runs the recognizer and the voice. The page names a
+   * language and sends text or audio, never a program or a path.
+   */
+  voiceCapabilities: "cloud:voice:capabilities",
+  voiceListenStart: "cloud:voice:listen-start",
+  voiceListenAudio: "cloud:voice:listen-audio",
+  voiceListenStop: "cloud:voice:listen-stop",
+  voiceListenCancel: "cloud:voice:listen-cancel",
+  voiceSpeak: "cloud:voice:speak",
+  voiceSpeakCancel: "cloud:voice:speak-cancel",
 } as const;
 
 /** Main → the web app. Push, so the page never polls the supervisor. */
@@ -322,6 +335,8 @@ export const CLOUD_EVENTS = {
   updateStatus: "cloud:event:update-status",
   toolchainState: "cloud:toolchain:state-changed",
   remoteAccessState: "cloud:remote-access:state-changed",
+  voiceTranscript: "cloud:voice:transcript",
+  voiceAudio: "cloud:voice:audio",
 } as const;
 
 export type ShellChannel = (typeof SHELL_CHANNELS)[keyof typeof SHELL_CHANNELS];

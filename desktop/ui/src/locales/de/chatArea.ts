@@ -202,8 +202,28 @@ export const chatArea = {
       resultsCount: "{count} Ergebnisse",
     },
   },
+  voice: {
+    start: "Mit dem Agenten sprechen",
+    end: "Beenden",
+    hint: "Hört zu – sprich, wenn du bereit bist",
+    state: {
+      starting: "Mikrofon wird geöffnet…",
+      listening: "Hört zu",
+      thinking: "Denkt nach…",
+      speaking: "Spricht – sprich, um zu unterbrechen",
+      off: "Sprache aus",
+    },
+    error: {
+      micDenied: "TaskTrooper kann das Mikrofon nicht verwenden. Erlaube es unter Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon.",
+      micMissing: "Kein Mikrofon gefunden.",
+      generic: "Sprache beendet: {message}",
+    },
+  },
   markdown: {
     empty: "Leer",
+    visual: {
+      title: "Zeichnung des Agenten",
+    },
     table: {
       scrollHint: "Scrollen, um weitere Spalten zu sehen",
     },

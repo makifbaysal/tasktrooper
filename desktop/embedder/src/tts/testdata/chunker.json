@@ -1,0 +1,458 @@
+[
+ {
+  "input": "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım.",
+    0.12
+   ],
+   [
+    "yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika.",
+    0.12
+   ],
+   [
+    "gecikmeyle yetişebildim.",
+    0.25
+   ],
+   [
+    "toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu!",
+    0.25
+   ],
+   [
+    "akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu!",
+    0.25
+   ],
+   [
+    "akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım.",
+    0.12
+   ],
+   [
+    "yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika.",
+    0.12
+   ],
+   [
+    "gecikmeyle yetişebildim.",
+    0.25
+   ],
+   [
+    "Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu!",
+    0.25
+   ],
+   [
+    "Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu!",
+    0.25
+   ],
+   [
+    "Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik. Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "Bugün sabah erkenden kalktım ve kahvaltımı yaptıktan sonra işe gitmek için evden çıktım, yolda eski bir arkadaşıma rastladım; uzun zamandır görüşmüyorduk ve biraz sohbet ettik.",
+    0.25
+   ],
+   [
+    "Sonra otobüse bindim ama trafik o kadar yoğundu ki toplantıya ancak yirmi dakika gecikmeyle yetişebildim. Toplantıda yeni projenin bütçesi, takvimi ve ekip dağılımı konuşuldu! Akşam eve döndüğümde çok yorgundum ama yine de kitabımı okumadan uyumadım.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+    0.0
+   ],
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+    0.0
+   ],
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+    0.0
+   ],
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+    0.0
+   ],
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+    0.0
+   ],
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
+    0.0
+   ],
+   [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa son.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "kısa cümle",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "kısa cümle.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "kısa cümle",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "kısa cümle.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "kısa cümle",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "kısa cümle.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "kısa cümle",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "kısa cümle.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "virgülle biten, ",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "virgülle biten.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "virgülle biten, ",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "virgülle biten.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "virgülle biten, ",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "virgülle biten.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "virgülle biten, ",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "virgülle biten.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "tırnakla biten.\"",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "tırnakla biten.\"",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "tırnakla biten.\"",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "tırnakla biten.\"",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "tırnakla biten.\"",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "tırnakla biten.\"",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "tırnakla biten.\"",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "tırnakla biten.\"",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "1234 5678",
+  "speed": 0.5,
+  "pieces": []
+ },
+ {
+  "input": "1234 5678",
+  "speed": 1.0,
+  "pieces": []
+ },
+ {
+  "input": "1234 5678",
+  "speed": 1.7,
+  "pieces": []
+ },
+ {
+  "input": "1234 5678",
+  "speed": 2.0,
+  "pieces": []
+ },
+ {
+  "input": "...",
+  "speed": 0.5,
+  "pieces": []
+ },
+ {
+  "input": "...",
+  "speed": 1.0,
+  "pieces": []
+ },
+ {
+  "input": "...",
+  "speed": 1.7,
+  "pieces": []
+ },
+ {
+  "input": "...",
+  "speed": 2.0,
+  "pieces": []
+ },
+ {
+  "input": "soru mu? evet! hayır.",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "soru mu? evet! hayır.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "soru mu? evet! hayır.",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "soru mu? evet! hayır.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "soru mu? evet! hayır.",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "soru mu? evet! hayır.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "soru mu? evet! hayır.",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "soru mu? evet! hayır.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+  "speed": 0.5,
+  "pieces": [
+   [
+    "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+  "speed": 1.0,
+  "pieces": [
+   [
+    "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+  "speed": 1.7,
+  "pieces": [
+   [
+    "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+    0.0
+   ]
+  ]
+ },
+ {
+  "input": "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+  "speed": 2.0,
+  "pieces": [
+   [
+    "merhaba! bugün hava çok güzel, toplantı öğleden sonra saat on beş otuzda başlayacak.",
+    0.0
+   ]
+  ]
+ }
+]

@@ -202,8 +202,28 @@ export const chatArea = {
       resultsCount: "{count} 个结果",
     },
   },
+  voice: {
+    start: "与智能体对话",
+    end: "结束",
+    hint: "正在聆听——准备好就说吧",
+    state: {
+      starting: "正在打开麦克风…",
+      listening: "正在聆听",
+      thinking: "思考中…",
+      speaking: "正在说话——开口即可打断",
+      off: "语音已关闭",
+    },
+    error: {
+      micDenied: "TaskTrooper 无法使用麦克风。请在 系统设置 → 隐私与安全性 → 麦克风 中允许。",
+      micMissing: "未找到麦克风。",
+      generic: "语音已停止：{message}",
+    },
+  },
   markdown: {
     empty: "空",
+    visual: {
+      title: "智能体绘制的图",
+    },
     table: {
       scrollHint: "滚动查看更多列",
     },
