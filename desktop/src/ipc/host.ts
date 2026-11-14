@@ -49,6 +49,9 @@ import type {
   UpdateStatus,
   VoiceAudioEvent,
   VoiceCapabilities,
+  VoiceChoice,
+  VoiceEngine,
+  VoiceEngineOption,
   VoiceLanguage,
   VoiceTranscriptEvent,
   WorkspaceCheck,
@@ -254,8 +257,12 @@ export interface DesktopVoiceHost {
   listenStop(id: string): Promise<void>;
   listenCancel(id: string): Promise<void>;
   onTranscript(cb: (event: VoiceTranscriptEvent) => void): () => void;
-  /** `style` is one of `capabilities().speakStyles[lang]`; left out, the voice's default. */
-  speak(lang: VoiceLanguage, text: string, speed?: number, style?: string): Promise<{ id: string }>;
+  /**
+   * `voice.engine` is one of `capabilities().speakEngines[lang]`, left out
+   * the first of them; `voice.style` one of that engine's styles, left out
+   * its default. A style for EMA is refused.
+   */
+  speak(lang: VoiceLanguage, text: string, speed?: number, voice?: VoiceChoice): Promise<{ id: string }>;
   speakCancel(id: string): Promise<void>;
   onAudio(cb: (event: VoiceAudioEvent) => void): () => void;
 }
@@ -445,6 +452,9 @@ export type {
   UpdateStatus,
   VoiceAudioEvent,
   VoiceCapabilities,
+  VoiceChoice,
+  VoiceEngine,
+  VoiceEngineOption,
   VoiceLanguage,
   VoiceTranscriptEvent,
 };

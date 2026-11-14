@@ -2,15 +2,15 @@ import type { Server } from "node:http";
 import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEmbeddingsServer, MAX_SPEECH_CHARS, SPEECH_SAMPLE_RATE } from "./server.js";
+import { createEmbeddingsServer, MAX_SPEECH_CHARS, SPEECH_SAMPLE_RATES } from "./server.js";
 import type { SpeechEngine } from "./tts/speech-worker.js";
 
 /** `POST /v1/audio/speech` against a fake voice: what reaches the client, and when generation stops. */
 
 function fakeVoice(chunks: Float32Array[], options: { failAfter?: number; gate?: Promise<void> } = {}) {
-  const seen: { text: string; speed: number; signal: AbortSignal; style?: string }[] = [];
+  const seen: { text: string; lang: string; speed: number; signal: AbortSignal; style?: string }[] = [];
   const engine = {
-    stream: vi.fn(async function* (text: string, opts: { speed: number; signal: AbortSignal; style?: string }) {
+    stream: vi.fn(async function* (text: string, opts: { lang: string; speed: number; signal: AbortSignal; style?: string }) {
       seen.push({ text, ...opts });
       for (const [i, chunk] of chunks.entries()) {
         if (opts.signal.aborted) return;
@@ -33,12 +33,14 @@ afterEach(async () => {
   }
 });
 
-const ENGLISH = { sampleRate: 24_000, styles: ["af_heart", "bm_george"], defaultStyle: "af_heart" };
+const KOKORO = { sampleRate: 24_000, styles: ["af_heart", "bm_george"], defaultStyle: "af_heart" };
+const SUPERTONIC = { sampleRate: 44_100, styles: ["F1", "F2", "M1"], defaultStyle: "M1" };
 
-async function start(voice?: () => Promise<SpeechEngine>, english?: () => Promise<SpeechEngine>) {
+async function start(voice?: () => Promise<SpeechEngine>, english?: () => Promise<SpeechEngine>, supertonic?: () => Promise<SpeechEngine>) {
   const made = createEmbeddingsServer({ log: () => undefined, idleUnloadMs: 0 });
-  if (voice) made.enableSpeech("tr", voice, { sampleRate: SPEECH_SAMPLE_RATE, styles: [] });
-  if (english) made.enableSpeech("en", english, ENGLISH);
+  if (voice) made.enableSpeech("ema", voice, { sampleRate: SPEECH_SAMPLE_RATES.ema, styles: [] });
+  if (english) made.enableSpeech("kokoro", english, KOKORO);
+  if (supertonic) made.enableSpeech("supertonic", supertonic, SUPERTONIC);
   await new Promise<void>((resolve) => made.server.listen(0, "127.0.0.1", resolve));
   open.push(made.server);
   return { ...made, port: (made.server.address() as AddressInfo).port };
@@ -60,10 +62,10 @@ describe("POST /v1/audio/speech", () => {
     const { res, bytes } = await speak(s.port, { input: "Merhaba!", voice: "tr", speed: 1.5 });
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/octet-stream");
-    expect(res.headers.get("x-sample-rate")).toBe(String(SPEECH_SAMPLE_RATE));
+    expect(res.headers.get("x-sample-rate")).toBe("48000");
     expect(Array.from(new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4))).toEqual([0.5, -0.25, 1]);
     expect(bytes.readFloatLE(0)).toBe(0.5);
-    expect(seen[0]).toMatchObject({ text: "Merhaba!", speed: 1.5 });
+    expect(seen[0]).toMatchObject({ text: "Merhaba!", lang: "tr", speed: 1.5 });
   });
 
   it("defaults the voice to tr and the speed to 1", async () => {
@@ -82,19 +84,25 @@ describe("POST /v1/audio/speech", () => {
     ["speed too low", { input: "a", speed: 0.25 }, "bad_request"],
     ["speed not a number", { input: "a", speed: "fast" }, "bad_request"],
     ["unsupported voice", { input: "a", voice: "fr" }, "unsupported_voice"],
-    ["a style for the Turkish voice", { input: "a", style: "af_heart" }, "unsupported_style"],
-    ["an unknown English style", { input: "a", voice: "en", style: "af_nobody" }, "unsupported_style"],
+    ["a style for EMA, the Turkish default", { input: "a", style: "af_heart" }, "unsupported_style"],
+    ["a style for EMA by name", { input: "a", engine: "ema", style: "F1" }, "unsupported_style"],
+    ["an unknown Kokoro style", { input: "a", voice: "en", style: "af_nobody" }, "unsupported_style"],
+    ["a Kokoro style for Supertonic", { input: "a", voice: "en", engine: "supertonic", style: "af_heart" }, "unsupported_style"],
     ["a style that is not a string", { input: "a", voice: "en", style: 3 }, "unsupported_style"],
+    ["an unknown engine", { input: "a", engine: "espeak" }, "unsupported_engine"],
+    ["an engine that is not a string", { input: "a", engine: 1 }, "unsupported_engine"],
+    ["Kokoro for Turkish", { input: "a", voice: "tr", engine: "kokoro" }, "unsupported_engine"],
+    ["EMA for English", { input: "a", voice: "en", engine: "ema" }, "unsupported_engine"],
   ])("answers 400 for %s without loading the voice", async (_label, body, code) => {
     const load = vi.fn(async () => fakeVoice([]).engine);
-    const s = await start(load, load);
+    const s = await start(load, load, load);
     const { res, bytes } = await speak(s.port, body);
     expect(res.status).toBe(400);
     expect((JSON.parse(bytes.toString()) as { error: { code: string } }).error.code).toBe(code);
     expect(load).not.toHaveBeenCalled();
   });
 
-  it("routes English to its own voice at 24 kHz, with the default style unless one is named", async () => {
+  it("routes English to Kokoro at 24 kHz, with the default style unless one is named", async () => {
     const turkish = fakeVoice([Float32Array.from([1])]);
     const english = fakeVoice([Float32Array.from([0.5])]);
     const loadTurkish = vi.fn(async () => turkish.engine);
@@ -103,7 +111,7 @@ describe("POST /v1/audio/speech", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("x-sample-rate")).toBe("24000");
     expect(bytes.readFloatLE(0)).toBe(0.5);
-    expect(english.seen[0]).toMatchObject({ text: "Hello!", speed: 1.25, style: "af_heart" });
+    expect(english.seen[0]).toMatchObject({ text: "Hello!", lang: "en", speed: 1.25, style: "af_heart" });
     expect(loadTurkish).not.toHaveBeenCalled();
 
     expect((await speak(s.port, { input: "Hi", voice: "en", style: "bm_george" })).res.status).toBe(200);
@@ -114,6 +122,59 @@ describe("POST /v1/audio/speech", () => {
     expect(turkish.seen[0].style).toBeUndefined();
   });
 
+  it("routes either language to Supertonic when named, at 44.1 kHz, with its default style unless one is named", async () => {
+    const turkish = fakeVoice([Float32Array.from([1])]);
+    const english = fakeVoice([Float32Array.from([1])]);
+    const supertonic = fakeVoice([Float32Array.from([0.25])]);
+    const loadSupertonic = vi.fn(async () => supertonic.engine);
+    const s = await start(async () => turkish.engine, async () => english.engine, loadSupertonic);
+
+    const tr = await speak(s.port, { input: "Merhaba", voice: "tr", engine: "supertonic", style: "F2" });
+    expect(tr.res.status).toBe(200);
+    expect(tr.res.headers.get("x-sample-rate")).toBe("44100");
+    expect(tr.bytes.readFloatLE(0)).toBe(0.25);
+    const en = await speak(s.port, { input: "Hello", voice: "en", engine: "supertonic", style: null });
+    expect(en.res.status).toBe(200);
+    expect(supertonic.seen.map(({ text, lang, style }) => ({ text, lang, style }))).toEqual([
+      { text: "Merhaba", lang: "tr", style: "F2" },
+      { text: "Hello", lang: "en", style: "M1" },
+    ]);
+    expect(loadSupertonic).toHaveBeenCalledTimes(1);
+    expect(turkish.seen).toHaveLength(0);
+    expect(english.seen).toHaveLength(0);
+  });
+
+  it("takes another engine for a language without one named when the default is missing", async () => {
+    const supertonic = fakeVoice([Float32Array.from([1])]);
+    const s = await start(undefined, undefined, async () => supertonic.engine);
+    const { res } = await speak(s.port, { input: "Merhaba", voice: "tr" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-sample-rate")).toBe("44100");
+    expect(supertonic.seen[0]).toMatchObject({ lang: "tr", style: "M1" });
+  });
+
+  it("answers 503 for a named engine whose files are missing, even with the default there", async () => {
+    const s = await start(async () => fakeVoice([]).engine);
+    const { res, bytes } = await speak(s.port, { input: "Merhaba", engine: "supertonic" });
+    expect(res.status).toBe(503);
+    expect(bytes.toString()).toContain("voice_unavailable");
+  });
+
+  it("unloads an engine no language speaks with any more once it is idle, and keeps the ones in use", async () => {
+    const ema = fakeVoice([new Float32Array(1)]);
+    const kokoro = fakeVoice([new Float32Array(1)]);
+    const supertonic = fakeVoice([new Float32Array(1)]);
+    const s = await start(async () => ema.engine, async () => kokoro.engine, async () => supertonic.engine);
+    await speak(s.port, { input: "Merhaba" });
+    await speak(s.port, { input: "Hello", voice: "en" });
+    await speak(s.port, { input: "Merhaba", engine: "supertonic" });
+    expect(ema.engine.release).toHaveBeenCalledTimes(1);
+    expect(kokoro.engine.release).not.toHaveBeenCalled();
+    await speak(s.port, { input: "Hello", voice: "en", engine: "supertonic" });
+    expect(kokoro.engine.release).toHaveBeenCalledTimes(1);
+    expect(supertonic.engine.release).not.toHaveBeenCalled();
+  });
+
   it("answers 503 voice_unavailable for a language whose files are missing", async () => {
     const s = await start(async () => fakeVoice([]).engine);
     const { res, bytes } = await speak(s.port, { input: "Hello", voice: "en", style: "af_heart" });
@@ -121,13 +182,25 @@ describe("POST /v1/audio/speech", () => {
     expect(bytes.toString()).toContain("voice_unavailable");
   });
 
-  it("lists the voices this copy has on GET /v1/audio/voices", async () => {
-    const both = await start(async () => fakeVoice([]).engine, async () => fakeVoice([]).engine);
-    const listed = await (await fetch(`http://127.0.0.1:${both.port}/v1/audio/voices`)).json();
+  it("lists, per language, the engines this copy has on GET /v1/audio/voices, the default first", async () => {
+    const all = await start(async () => fakeVoice([]).engine, async () => fakeVoice([]).engine, async () => fakeVoice([]).engine);
+    const supertonic = { id: "supertonic", sample_rate: 44_100, styles: ["M1", "F1", "F2"], default_style: "M1" };
+    const listed = await (await fetch(`http://127.0.0.1:${all.port}/v1/audio/voices`)).json();
     expect(listed).toEqual({
       voices: [
-        { id: "tr", sample_rate: 48_000, styles: [] },
-        { id: "en", sample_rate: 24_000, styles: ["af_heart", "bm_george"], default_style: "af_heart" },
+        { id: "tr", default_engine: "ema", engines: [{ id: "ema", sample_rate: 48_000, styles: [] }, supertonic] },
+        {
+          id: "en",
+          default_engine: "kokoro",
+          engines: [{ id: "kokoro", sample_rate: 24_000, styles: ["af_heart", "bm_george"], default_style: "af_heart" }, supertonic],
+        },
+      ],
+    });
+    const onlySupertonic = await start(undefined, undefined, async () => fakeVoice([]).engine);
+    expect(await (await fetch(`http://127.0.0.1:${onlySupertonic.port}/v1/audio/voices`)).json()).toEqual({
+      voices: [
+        { id: "tr", default_engine: "supertonic", engines: [supertonic] },
+        { id: "en", default_engine: "supertonic", engines: [supertonic] },
       ],
     });
     const none = await start();

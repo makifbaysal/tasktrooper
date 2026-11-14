@@ -2,7 +2,16 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { CLOUD_EVENTS } from "../../ipc/channels.js";
-import type { VoiceAudioEvent, VoiceCapabilities, VoiceLanguage, VoiceTranscriptEvent } from "../../ipc/types.js";
+import {
+  VOICE_ENGINES,
+  type VoiceAudioEvent,
+  type VoiceCapabilities,
+  type VoiceChoice,
+  type VoiceEngine,
+  type VoiceEngineOption,
+  type VoiceLanguage,
+  type VoiceTranscriptEvent,
+} from "../../ipc/types.js";
 
 /**
  * Talking to an agent: what the person says becomes text (`listen*`), and what
@@ -14,12 +23,13 @@ import type { VoiceAudioEvent, VoiceCapabilities, VoiceLanguage, VoiceTranscript
  * the microphone (so Chromium's echo cancellation is between the speaker and
  * what we hear) and streams PCM here.
  *
- * Speaking is the embedder's `POST /v1/audio/speech`, with voices bundled
- * with the app (Turkish: EMA Lightning, 48 kHz; English: Kokoro, 24 kHz, in
- * several styles): raw float32 PCM at the rate the embedder announces, passed
- * to the page chunk by chunk as it is made. Which voices this copy has, and
- * their styles, come from the embedder's `GET /v1/audio/voices`; a language
- * without one is read by the page with the OS voice.
+ * Speaking is the embedder's `POST /v1/audio/speech`, with engines bundled
+ * with the app (EMA Lightning, Turkish, 48 kHz; Kokoro, English, 24 kHz;
+ * Supertonic, both, 44.1 kHz; the last two in several styles): raw float32
+ * PCM at the rate the embedder announces, passed to the page chunk by chunk
+ * as it is made. Which engines this copy has per language, and their styles,
+ * come from the embedder's `GET /v1/audio/voices`; a language without one is
+ * read by the page with the OS voice.
  */
 
 export const SPEECH_LOCALES: Record<VoiceLanguage, string> = { tr: "tr-TR", en: "en-US" };
@@ -30,16 +40,18 @@ export const MAX_UTTERANCE_MS = 5 * 60_000;
 /** A text longer than the embedder accepts; the page sends one sentence or so at a time. */
 export const MAX_SPEAK_CHARS = 4000;
 
-/** Each bundled voice's rate, for an error event sent before the embedder named one. */
-const SAMPLE_RATES: Record<VoiceLanguage, number> = { tr: 48_000, en: 24_000 };
+/** Each engine's rate, for an error event sent before the embedder named one. */
+const SAMPLE_RATES: Record<VoiceEngine, number> = { ema: 48_000, kokoro: 24_000, supertonic: 44_100 };
+/** The engine the embedder picks for a request that names none, when it has it. */
+const DEFAULT_ENGINES: Record<VoiceLanguage, VoiceEngine> = { tr: "ema", en: "kokoro" };
 
 /** The voices list is a loopback call to a process this app runs; past this, the voices count as missing. */
 const VOICES_TIMEOUT_MS = 3_000;
 
 interface ListedVoice {
   id: string;
-  styles?: unknown;
-  default_style?: unknown;
+  default_engine?: unknown;
+  engines?: unknown;
 }
 
 export interface VoiceDeps {
@@ -71,16 +83,12 @@ export class VoiceService {
   async capabilities(): Promise<VoiceCapabilities> {
     const canListen = this.#deps.platform === "darwin" && this.#deps.speechBinary() !== null;
     const voices = await this.#voices();
-    const styles = (lang: VoiceLanguage): string[] => {
-      const voice = voices.find((v) => v.id === lang);
-      const listed = Array.isArray(voice?.styles) ? voice.styles.filter((s): s is string => typeof s === "string") : [];
-      const first = typeof voice?.default_style === "string" && listed.includes(voice.default_style) ? voice.default_style : null;
-      return first ? [first, ...listed.filter((s) => s !== first)] : listed;
-    };
+    const tr = engineOptions(voices.find((v) => v.id === "tr"));
+    const en = engineOptions(voices.find((v) => v.id === "en"));
     return {
       listen: { tr: canListen, en: canListen },
-      speak: { tr: voices.some((v) => v.id === "tr"), en: voices.some((v) => v.id === "en") },
-      speakStyles: { tr: styles("tr"), en: styles("en") },
+      speak: { tr: tr.length > 0, en: en.length > 0 },
+      speakEngines: { tr, en },
     };
   }
 
@@ -172,16 +180,17 @@ export class VoiceService {
 
   /**
    * Starts speaking `text`; the audio arrives as `voice:audio` events carrying
-   * the returned id. `style` picks the English voice's speaker; the Turkish
-   * voice has one, so a style for it is dropped rather than refused.
+   * the returned id. `voice` picks the engine and its speaker, each left to
+   * the embedder's default when absent; one the embedder refuses (a style for
+   * EMA, an engine that does not read `lang`) ends in an error event.
    */
-  async speak(lang: VoiceLanguage, text: string, speed: number, style?: string): Promise<{ id: string }> {
+  async speak(lang: VoiceLanguage, text: string, speed: number, voice: VoiceChoice = {}): Promise<{ id: string }> {
     const base = await this.#deps.embedderUrl();
     if (!base) throw new Error("The voice engine is not running.");
     const id = randomUUID();
     const controller = new AbortController();
     this.#speeches.set(id, controller);
-    void this.#stream(id, base, { lang, text, speed, style: lang === "en" ? style : undefined }, controller.signal);
+    void this.#stream(id, base, { lang, text, speed, engine: voice.engine, style: voice.style }, controller.signal);
     return { id };
   }
 
@@ -199,20 +208,21 @@ export class VoiceService {
   async #stream(
     id: string,
     base: string,
-    request: { lang: VoiceLanguage; text: string; speed: number; style: string | undefined },
+    request: { lang: VoiceLanguage; text: string; speed: number; engine: VoiceEngine | undefined; style: string | undefined },
     signal: AbortSignal,
   ): Promise<void> {
-    const { lang, text, speed, style } = request;
+    const { lang, text, speed, engine, style } = request;
+    const fallbackRate = SAMPLE_RATES[engine ?? DEFAULT_ENGINES[lang]];
     const doFetch = this.#deps.fetch ?? fetch;
     try {
       const res = await doFetch(`${base}/v1/audio/speech`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: text, voice: lang, speed, ...(style ? { style } : {}) }),
+        body: JSON.stringify({ input: text, voice: lang, speed, ...(engine ? { engine } : {}), ...(style ? { style } : {}) }),
         signal,
       });
       if (!res.ok || !res.body) throw new Error(`voice engine answered ${res.status}`);
-      const sampleRate = Number(res.headers.get("x-sample-rate")) || SAMPLE_RATES[lang];
+      const sampleRate = Number(res.headers.get("x-sample-rate")) || fallbackRate;
       const reader = res.body.getReader();
       // A network chunk can split a float; carry the odd bytes to the next one.
       let carry = new Uint8Array(0);
@@ -228,7 +238,7 @@ export class VoiceService {
     } catch (err) {
       if (!signal.aborted) {
         this.#deps.log?.(`[voice] speak failed: ${err instanceof Error ? err.message : String(err)}`);
-        this.#publishAudio({ id, sampleRate: SAMPLE_RATES[lang], done: true, error: "The voice engine could not read this." });
+        this.#publishAudio({ id, sampleRate: fallbackRate, done: true, error: "The voice engine could not read this." });
       }
     } finally {
       this.#speeches.delete(id);
@@ -249,6 +259,23 @@ export class VoiceService {
   #publishAudio(event: VoiceAudioEvent): void {
     this.#deps.publish(CLOUD_EVENTS.voiceAudio, event);
   }
+}
+
+/** A language's engines from the embedder's listing: known ids only, the default first, each one's default style first. */
+function engineOptions(voice: ListedVoice | undefined): VoiceEngineOption[] {
+  if (!voice || !Array.isArray(voice.engines)) return [];
+  const options: VoiceEngineOption[] = [];
+  for (const raw of voice.engines as unknown[]) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const { id, styles, default_style: defaultStyle } = raw as { id?: unknown; styles?: unknown; default_style?: unknown };
+    if (typeof id !== "string" || !(VOICE_ENGINES as readonly string[]).includes(id) || options.some((o) => o.engine === id)) continue;
+    const listed = Array.isArray(styles) ? styles.filter((s): s is string => typeof s === "string") : [];
+    const first = typeof defaultStyle === "string" && listed.includes(defaultStyle) ? defaultStyle : null;
+    options.push({ engine: id as VoiceEngine, styles: first ? [first, ...listed.filter((s) => s !== first)] : listed });
+  }
+  const preferred = options.findIndex((o) => o.engine === voice.default_engine);
+  if (preferred > 0) options.unshift(...options.splice(preferred, 1));
+  return options;
 }
 
 export function parseHelperLine(id: string, line: string): VoiceTranscriptEvent | null {

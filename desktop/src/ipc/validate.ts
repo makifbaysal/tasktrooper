@@ -22,6 +22,7 @@ import {
   REMOTE_MODES,
   REMOTE_PROVIDERS,
   TOOLCHAIN_IDS,
+  VOICE_ENGINES,
   type ChildId,
   type RemoteMode,
   type RemoteProvider,
@@ -30,6 +31,7 @@ import {
   type NotificationPreferences,
   type RunnerPairingBundle,
   type UserSettings,
+  type VoiceEngine,
   type VoiceLanguage,
 } from "./types.js";
 import type {
@@ -779,9 +781,10 @@ export function validateVoiceListenAudio(raw: unknown): { id: string; pcm: Uint8
   return { id, pcm: bytes };
 }
 
-const VOICE_STYLE = /^[a-z]{2}_[a-z]+$/;
+const VOICE_STYLE = /^[A-Za-z0-9_]{1,32}$/;
 
-export function validateVoiceSpeak(raw: unknown): { lang: VoiceLanguage; text: string; speed: number; style?: string } {
+/** `voice` and each of its fields may be null, which is the same as left out. */
+export function validateVoiceSpeak(raw: unknown): { lang: VoiceLanguage; text: string; speed: number; engine?: VoiceEngine; style?: string } {
   const o = asRecord(raw, "voice");
   const lang = asVoiceLanguage(o.lang, "voice.lang");
   const text = asString(o.text, "voice.text", { max: VOICE_SPEAK_MAX_CHARS });
@@ -793,7 +796,18 @@ export function validateVoiceSpeak(raw: unknown): { lang: VoiceLanguage; text: s
     }
     speed = o.speed;
   }
-  if (o.style === undefined || o.style === null) return { lang, text, speed };
-  if (typeof o.style !== "string" || o.style.length > 32 || !VOICE_STYLE.test(o.style)) fail("voice.style must be a voice style name like af_heart");
-  return { lang, text, speed, style: o.style };
+  const out: { lang: VoiceLanguage; text: string; speed: number; engine?: VoiceEngine; style?: string } = { lang, text, speed };
+  if (o.voice === undefined || o.voice === null) return out;
+  const choice = asRecord(o.voice, "voice.voice");
+  if (choice.engine !== undefined && choice.engine !== null) {
+    if (typeof choice.engine !== "string" || !(VOICE_ENGINES as readonly string[]).includes(choice.engine)) {
+      fail(`voice.voice.engine must be one of ${VOICE_ENGINES.join(", ")}`);
+    }
+    out.engine = choice.engine as VoiceEngine;
+  }
+  if (choice.style !== undefined && choice.style !== null) {
+    if (typeof choice.style !== "string" || !VOICE_STYLE.test(choice.style)) fail("voice.voice.style must be a voice style name like af_heart or F1");
+    out.style = choice.style;
+  }
+  return out;
 }

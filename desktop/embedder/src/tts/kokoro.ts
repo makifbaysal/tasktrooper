@@ -6,7 +6,7 @@ import { gunzipSync } from "node:zlib";
 import type * as OrtModule from "onnxruntime-web";
 import { SerialQueue } from "../limits.js";
 import { EnglishG2P, type LexiconData } from "./english.js";
-import { ENGLISH_DEFAULT_STYLE, ENGLISH_STYLES, KOKORO_CONFIG, KOKORO_MODEL, kokoroStyleFile, misakiLexiconFile } from "./files.js";
+import { KOKORO_DEFAULT_STYLE, KOKORO_STYLES, KOKORO_CONFIG, KOKORO_MODEL, kokoroStyleFile, misakiLexiconFile } from "./files.js";
 import { KOKORO_RATE, passes, STYLE_DIM, STYLE_ROWS, styleRow, tokenIds } from "./kokoro-plan.js";
 
 // A literal require, not an import, for the reason engine.ts gives.
@@ -32,7 +32,7 @@ export interface KokoroOptions {
 
 export interface KokoroSpeakOptions {
   speed: number;
-  /** One of ENGLISH_STYLES; ENGLISH_DEFAULT_STYLE when left out. */
+  /** One of KOKORO_STYLES; KOKORO_DEFAULT_STYLE when left out. */
   style?: string;
   /** Checked between ONNX runs; generation stops at the next one. */
   signal?: AbortSignal;
@@ -59,8 +59,8 @@ export class KokoroVoice {
 
   async *stream(text: string, options: KokoroSpeakOptions): AsyncGenerator<Float32Array> {
     const { speed, signal } = options;
-    const style = options.style ?? ENGLISH_DEFAULT_STYLE;
-    if (!ENGLISH_STYLES.includes(style)) throw new Error(`no English voice style named ${style}`);
+    const style = options.style ?? KOKORO_DEFAULT_STYLE;
+    if (!KOKORO_STYLES.includes(style)) throw new Error(`no English voice style named ${style}`);
     const pack = this.#style(style);
     const phonemes = this.#lexicon(style.startsWith("b") ? "gb" : "us").phonemize(text);
     for (const pass of passes(phonemes)) {

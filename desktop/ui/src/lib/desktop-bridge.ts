@@ -737,11 +737,26 @@ export interface DesktopToolchainHost {
 
 export type DesktopVoiceLanguage = "tr" | "en";
 
+/** EMA Lightning reads Turkish, Kokoro English, Supertonic both. */
+export type DesktopVoiceEngine = "ema" | "kokoro" | "supertonic";
+
+export interface DesktopVoiceEngineOption {
+  engine: DesktopVoiceEngine;
+  /** Its styles, its default first; empty for EMA. */
+  styles: string[];
+}
+
+/** Which bundled engine and style read a text; either left out is the default. */
+export interface DesktopVoiceChoice {
+  engine?: DesktopVoiceEngine;
+  style?: string;
+}
+
 export interface DesktopVoiceCapabilities {
   listen: Record<DesktopVoiceLanguage, boolean>;
   speak: Record<DesktopVoiceLanguage, boolean>;
-  /** The bundled voice's styles per language, the default first; empty where there is no choice. */
-  speakStyles: Record<DesktopVoiceLanguage, string[]>;
+  /** The bundled engines per language, the one used when none is named first; empty where there is none. */
+  speakEngines: Record<DesktopVoiceLanguage, DesktopVoiceEngineOption[]>;
 }
 
 export type DesktopVoiceTranscriptEvent =
@@ -767,8 +782,12 @@ export interface DesktopVoiceHost {
   listenStop(id: string): Promise<void>;
   listenCancel(id: string): Promise<void>;
   onTranscript(cb: (event: DesktopVoiceTranscriptEvent) => void): () => void;
-  /** `style` is one of `capabilities().speakStyles[lang]`; left out, the voice's default. */
-  speak(lang: DesktopVoiceLanguage, text: string, speed?: number, style?: string): Promise<{ id: string }>;
+  /**
+   * `voice.engine` is one of `capabilities().speakEngines[lang]`, left out the
+   * first of them; `voice.style` one of that engine's styles, left out its
+   * default. A style for EMA is refused.
+   */
+  speak(lang: DesktopVoiceLanguage, text: string, speed?: number, voice?: DesktopVoiceChoice): Promise<{ id: string }>;
   speakCancel(id: string): Promise<void>;
   onAudio(cb: (event: DesktopVoiceAudioEvent) => void): () => void;
 }

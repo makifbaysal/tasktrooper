@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ENGLISH_STYLES } from "./files.js";
+import { KOKORO_STYLES, SUPERTONIC_STYLES } from "./files.js";
 import { startSpeechWorker, type SpeechEngine } from "./speech-worker.js";
 
 /**
@@ -16,7 +16,7 @@ function fakeWorker(body: string): string {
   return file;
 }
 
-const init = { voice: "tr" as const, voiceDir: "/v", wasmDir: "/w", numThreads: 1 };
+const init = { engine: "ema" as const, voiceDir: "/v", wasmDir: "/w", numThreads: 1 };
 
 // Three chunks of [speed, i] for "say"; for "long", one every 20 ms until
 // cancelled; "crash" kills the thread.
@@ -38,7 +38,7 @@ parentPort.on("message", (req) => {
     return;
   }
   for (let i = 0; i < 3; i++) {
-    const pcm = Float32Array.from([req.speed, i, req.style === "bm_george" ? 1 : 0]);
+    const pcm = Float32Array.from([req.speed, i, req.style === "bm_george" ? 1 : 0, req.lang === "en" ? 1 : 0]);
     parentPort.postMessage({ type: "chunk", id: req.id, pcm }, [pcm.buffer]);
   }
   parentPort.postMessage({ type: "done", id: req.id });
@@ -46,7 +46,7 @@ parentPort.on("message", (req) => {
 
 async function collect(engine: SpeechEngine, text: string, signal = new AbortController().signal): Promise<number[][]> {
   const out: number[][] = [];
-  for await (const pcm of engine.stream(text, { speed: 1.5, signal })) out.push(Array.from(pcm));
+  for await (const pcm of engine.stream(text, { lang: "tr", speed: 1.5, signal })) out.push(Array.from(pcm));
   return out;
 }
 
@@ -54,19 +54,20 @@ describe("startSpeechWorker", () => {
   it("streams each chunk in order and ends on done", async () => {
     const engine = await startSpeechWorker(fakeWorker(FAKE), init);
     expect(await collect(engine, "say")).toEqual([
-      [1.5, 0, 0],
-      [1.5, 1, 0],
-      [1.5, 2, 0],
+      [1.5, 0, 0, 0],
+      [1.5, 1, 0, 0],
+      [1.5, 2, 0, 0],
     ]);
     await engine.release();
     expect(engine.alive).toBe(false);
   });
 
-  it("passes the style on to the worker", async () => {
-    const engine = await startSpeechWorker(fakeWorker(FAKE), { ...init, voice: "en" });
+  it("passes the language and the style on to the worker", async () => {
+    const engine = await startSpeechWorker(fakeWorker(FAKE), { ...init, engine: "kokoro" });
     const got: number[][] = [];
-    for await (const pcm of engine.stream("say", { speed: 1, style: "bm_george", signal: new AbortController().signal })) got.push(Array.from(pcm));
+    for await (const pcm of engine.stream("say", { lang: "en", speed: 1, style: "bm_george", signal: new AbortController().signal })) got.push(Array.from(pcm));
     expect(got.map((c) => c[2])).toEqual([1, 1, 1]);
+    expect(got.map((c) => c[3])).toEqual([1, 1, 1]);
     await engine.release();
   });
 
@@ -80,7 +81,7 @@ describe("startSpeechWorker", () => {
     const engine = await startSpeechWorker(fakeWorker(FAKE), init);
     const controller = new AbortController();
     const got: Float32Array[] = [];
-    for await (const pcm of engine.stream("long", { speed: 1, signal: controller.signal })) {
+    for await (const pcm of engine.stream("long", { lang: "tr", speed: 1, signal: controller.signal })) {
       got.push(pcm);
       if (got.length === 2) controller.abort();
     }
@@ -106,10 +107,10 @@ describe("startSpeechWorker", () => {
 const dist = path.resolve(import.meta.dirname, "../../../dist/embedder");
 describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", "ema_sound.onnx")))("the real voice", () => {
   it("speaks a Turkish sentence: audible, a sane length, first chunk one second", { timeout: 60_000 }, async () => {
-    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { voice: "tr", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
+    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { engine: "ema", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
     try {
       const chunks: Float32Array[] = [];
-      for await (const pcm of engine.stream("Merhaba! Bugün hava çok güzel.", { speed: 1, signal: new AbortController().signal })) chunks.push(pcm);
+      for await (const pcm of engine.stream("Merhaba! Bugün hava çok güzel.", { lang: "tr", speed: 1, signal: new AbortController().signal })) chunks.push(pcm);
       expect(chunks[0].length).toBe(25 * 1920);
       const all = chunks.flatMap((c) => Array.from(c));
       const seconds = all.length / 48_000;
@@ -126,11 +127,11 @@ describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.
 
 describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", "kokoro_v1_q8.onnx")))("the real English voice", () => {
   it("speaks an English sentence in every bundled style: audible, a sane length, one pass per sentence", { timeout: 180_000 }, async () => {
-    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { voice: "en", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
+    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { engine: "kokoro", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
     try {
-      for (const style of ENGLISH_STYLES) {
+      for (const style of KOKORO_STYLES) {
         const chunks: Float32Array[] = [];
-        for await (const pcm of engine.stream("Hello! The build is done.", { speed: 1, style, signal: new AbortController().signal })) chunks.push(pcm);
+        for await (const pcm of engine.stream("Hello! The build is done.", { lang: "en", speed: 1, style, signal: new AbortController().signal })) chunks.push(pcm);
         expect(chunks).toHaveLength(2);
         const all = chunks.flatMap((c) => Array.from(c));
         const seconds = all.length / 24_000;
@@ -139,6 +140,35 @@ describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.
         const rms = Math.sqrt(all.reduce((a, b) => a + b * b, 0) / all.length);
         expect(rms).toBeGreaterThan(0.01);
         expect(all.every(Number.isFinite)).toBe(true);
+      }
+    } finally {
+      await engine.release();
+    }
+  });
+});
+
+describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", "supertonic_vector_estimator.onnx")))("the real Supertonic voice", () => {
+  it("speaks Turkish and English in one worker, every style: audible, a sane length, a short first pass", { timeout: 300_000 }, async () => {
+    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { engine: "supertonic", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
+    try {
+      const cases = [
+        ["tr", "Derleme dört dakikada bitti, ama ödeme modülünde iki test başarısız oldu."],
+        ["en", "The build finished in four minutes, but two tests failed in the payment module."],
+      ] as const;
+      for (const style of SUPERTONIC_STYLES) {
+        for (const [lang, text] of cases) {
+          const chunks: Float32Array[] = [];
+          for await (const pcm of engine.stream(text, { lang, speed: 1, style, signal: new AbortController().signal })) chunks.push(pcm);
+          expect(chunks).toHaveLength(3);
+          expect(chunks[0].length / 44_100).toBeLessThan(2.5);
+          const all = chunks.flatMap((c) => Array.from(c));
+          const seconds = all.length / 44_100;
+          expect(seconds).toBeGreaterThan(2);
+          expect(seconds).toBeLessThan(8);
+          const rms = Math.sqrt(all.reduce((a, b) => a + b * b, 0) / all.length);
+          expect(rms).toBeGreaterThan(0.01);
+          expect(all.every(Number.isFinite)).toBe(true);
+        }
       }
     } finally {
       await engine.release();

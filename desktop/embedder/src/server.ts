@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { SpeechEngine, SpeechVoice } from "./tts/speech-worker.js";
+import type { SpeechEngine, SpeechEngineId, SpeechLanguage } from "./tts/speech-worker.js";
 
 export interface EmbeddingEngine {
   /** Every input in one call, so the engine can batch them; `promptTokens` comes from the same tokenization. */
@@ -28,11 +28,11 @@ export interface EmbeddingEngine {
  *                          the model this server actually serves.
  *   POST /v1/audio/speech  the bundled voices, Turkish and English (and at
  *                          /audio/speech, for the same reason). OpenAI's path
- *                          and request shape, but the answer is raw PCM
- *                          streamed as it is made, not an encoded file: see
- *                          speech().
- *   GET  /v1/audio/voices  which of them this copy has, at what sample rate,
- *                          and the English voice's styles.
+ *                          and request shape, plus `engine` and `style`, but
+ *                          the answer is raw PCM streamed as it is made, not
+ *                          an encoded file: see speech().
+ *   GET  /v1/audio/voices  per language, the engines this copy has, the
+ *                          default first, with their sample rates and styles.
  *
  * Answers `503` with a small JSON error body until the model is downloaded —
  * never hangs, never crashes the request, because a caller mid-index must see
@@ -70,14 +70,23 @@ interface EmbeddingsRequestBody {
 interface SpeechRequestBody {
   input?: unknown;
   voice?: unknown;
+  engine?: unknown;
   speed?: unknown;
   style?: unknown;
 }
 
-/** Every voice a request may name; one this copy has no files for answers 503. */
-export const SPEECH_VOICES: readonly SpeechVoice[] = ["tr", "en"];
-/** EMA Lightning's rate, the Turkish voice. */
-export const SPEECH_SAMPLE_RATE = 48_000;
+/** Every language a request may name as its `voice`. */
+export const SPEECH_LANGUAGES: readonly SpeechLanguage[] = ["tr", "en"];
+/** Every engine a request may name, and the languages each speaks; one this copy has no files for answers 503. */
+export const SPEECH_ENGINES: Readonly<Record<SpeechEngineId, readonly SpeechLanguage[]>> = {
+  ema: ["tr"],
+  kokoro: ["en"],
+  supertonic: ["tr", "en"],
+};
+/** The engine a request without one gets, when this copy has it. */
+export const DEFAULT_ENGINES: Readonly<Record<SpeechLanguage, SpeechEngineId>> = { tr: "ema", en: "kokoro" };
+/** Each engine's own rate: EMA Lightning 48 kHz, Kokoro 24 kHz, Supertonic 44.1 kHz. */
+export const SPEECH_SAMPLE_RATES: Readonly<Record<SpeechEngineId, number>> = { ema: 48_000, kokoro: 24_000, supertonic: 44_100 };
 /** A spoken reply, not a document: longer text is refused before any of it is read aloud. */
 export const MAX_SPEECH_CHARS = 4000;
 /** Room for MAX_SPEECH_CHARS with every one of them escaped in JSON. */
@@ -125,23 +134,23 @@ export interface EmbedderServer {
    */
   enableLoading(load?: () => Promise<EmbeddingEngine>): void;
   /**
-   * `voice`'s files are on disk: `/v1/audio/speech` loads it with `load` on
+   * `engine`'s files are on disk: `/v1/audio/speech` loads it with `load` on
    * its first request for it. Until this is called, a request for it answers 503.
    */
-  enableSpeech(voice: SpeechVoice, load: () => Promise<SpeechEngine>, info: SpeechVoiceInfo): void;
+  enableSpeech(engine: SpeechEngineId, load: () => Promise<SpeechEngine>, info: SpeechEngineInfo): void;
 }
 
-export interface SpeechVoiceInfo {
+export interface SpeechEngineInfo {
   /** Every chunk the engine yields is at this rate. */
   sampleRate: number;
-  /** The styles a request may name; empty for a voice without them. */
+  /** The styles a request may name; empty for an engine without them. */
   styles: readonly string[];
   defaultStyle?: string;
 }
 
 interface SpeechModel {
   life: LazyModel<SpeechEngine>;
-  info: SpeechVoiceInfo;
+  info: SpeechEngineInfo;
 }
 
 /**
@@ -243,6 +252,16 @@ class LazyModel<E extends Releasable> {
     this.#idleTimer.unref();
   }
 
+  /** Released now rather than at the idle timeout, when nothing is using it. */
+  releaseIdle(reason: string): void {
+    if (this.#inFlight > 0 || !this.#engine) return;
+    this.#disarm();
+    const released = this.#engine;
+    this.#engine = null;
+    this.log(`${reason}; unloading ${this.label}.`);
+    released.release().catch((err) => this.log(`releasing ${this.label} failed: ${describe(err)}`));
+  }
+
   #unload(): void {
     this.#idleTimer = null;
     // A request that began after the timer was armed has not re-armed it yet.
@@ -258,10 +277,11 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
   const idleUnloadMs = options.idleUnloadMs ?? DEFAULT_IDLE_UNLOAD_MS;
   const log = options.log ?? ((message: string) => process.stderr.write(`[embedder] ${message}\n`));
   const embedding = new LazyModel<EmbeddingEngine>("the embedding model", idleUnloadMs, log);
-  const speech = new Map<SpeechVoice, SpeechModel>();
+  const speech = new Map<SpeechEngineId, SpeechModel>();
+  const chosen = new Map<SpeechLanguage, SpeechEngineId>();
 
   const server = createServer((req, res) => {
-    handle(req, res, { log, embedding, speech }).catch((err) => {
+    handle(req, res, { log, embedding, speech, chosen }).catch((err) => {
       // A handler that throws after headers were already sent cannot be
       // answered again; this is the last-resort log for that case.
       log(`request failed: ${describe(err)}`);
@@ -281,11 +301,11 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
     enableLoading: (load) => {
       embedding.setLoader(load ?? options.load ?? null);
     },
-    enableSpeech: (voice, load, info) => {
-      const existing = speech.get(voice);
-      const life = existing?.life ?? new LazyModel<SpeechEngine>(`the ${voice} voice`, idleUnloadMs, log);
+    enableSpeech: (engine, load, info) => {
+      const existing = speech.get(engine);
+      const life = existing?.life ?? new LazyModel<SpeechEngine>(`the ${engine} voice`, idleUnloadMs, log);
       life.setLoader(load);
-      speech.set(voice, { life, info });
+      speech.set(engine, { life, info });
     },
   };
 }
@@ -293,7 +313,18 @@ export function createEmbeddingsServer(options: EmbeddingsServerOptions = {}): E
 interface Routes {
   log: (message: string) => void;
   embedding: LazyModel<EmbeddingEngine>;
-  speech: Map<SpeechVoice, SpeechModel>;
+  speech: Map<SpeechEngineId, SpeechModel>;
+  /** The engine each language's last request spoke with. */
+  chosen: Map<SpeechLanguage, SpeechEngineId>;
+}
+
+const ENGINE_IDS = Object.keys(SPEECH_ENGINES) as SpeechEngineId[];
+
+/** The engines this copy has for `lang`, the default first. */
+function enginesFor(lang: SpeechLanguage, speech: Map<SpeechEngineId, SpeechModel>): SpeechEngineId[] {
+  const have = ENGINE_IDS.filter((id) => SPEECH_ENGINES[id].includes(lang) && speech.get(id)?.life.loadable);
+  const preferred = DEFAULT_ENGINES[lang];
+  return have.includes(preferred) ? [preferred, ...have.filter((id) => id !== preferred)] : have;
 }
 
 const EMBEDDINGS_PATHS = new Set(["/embeddings", "/v1/embeddings"]);
@@ -317,11 +348,20 @@ async function handle(req: IncomingMessage, res: ServerResponse, routes: Routes)
 
   if (req.method === "GET" && VOICES_PATHS.has(route)) {
     sendJson(res, 200, {
-      voices: SPEECH_VOICES.flatMap((id) => {
-        const model = routes.speech.get(id);
-        if (!model) return [];
-        const { sampleRate, styles, defaultStyle } = model.info;
-        return [{ id, sample_rate: sampleRate, styles, ...(defaultStyle ? { default_style: defaultStyle } : {}) }];
+      voices: SPEECH_LANGUAGES.flatMap((id) => {
+        const engines = enginesFor(id, routes.speech);
+        if (engines.length === 0) return [];
+        return [
+          {
+            id,
+            default_engine: engines[0],
+            engines: engines.map((engine) => {
+              const { sampleRate, styles, defaultStyle } = (routes.speech.get(engine) as SpeechModel).info;
+              const ordered = defaultStyle ? [defaultStyle, ...styles.filter((s) => s !== defaultStyle)] : [...styles];
+              return { id: engine, sample_rate: sampleRate, styles: ordered, ...(defaultStyle ? { default_style: defaultStyle } : {}) };
+            }),
+          },
+        ];
       }),
     });
     return;
@@ -395,12 +435,21 @@ async function embeddings(req: IncomingMessage, res: ServerResponse, life: LazyM
 }
 
 /**
- * Speak `input` and stream it back as it is made: 200 with
- * `application/octet-stream`, `X-Sample-Rate` (48000 for Turkish, 24000 for
- * English), and a chunked body of mono float32 little-endian PCM (every
- * platform this ships on is little endian, so the engine's own buffers go out
- * as they are). The first chunk is short (a second of Turkish, the first
- * clause of English), so playback can start long before the text is done.
+ * Speak `input` (`voice` is its language) and stream it back as it is made:
+ * 200 with `application/octet-stream`, `X-Sample-Rate` (the engine's:
+ * SPEECH_SAMPLE_RATES), and a chunked body of mono float32 little-endian PCM
+ * (every platform this ships on is little endian, so the engine's own buffers
+ * go out as they are). The first chunk is short (a second of EMA, the first
+ * clause of Kokoro or Supertonic), so playback can start long before the text
+ * is done.
+ *
+ * Without `engine`, the language's default engine (DEFAULT_ENGINES) speaks,
+ * or when this copy lacks it, another it has for the language. An engine
+ * named that does not speak the language, or a style the engine does not
+ * have (any style, for EMA), is a 400; an engine whose files are missing a 503.
+ * An engine no language spoke with on its last request is unloaded as soon as
+ * it is idle rather than after the idle timeout, so switching engines does
+ * not hold two models in memory for ten minutes.
  *
  * Status is decided before the first byte: a load or inference failure ahead
  * of it is a JSON error like every other route's. A failure after it can only
@@ -425,7 +474,9 @@ async function speech(req: IncomingMessage, res: ServerResponse, routes: Routes)
     return;
   }
 
-  const { input, voice = "tr", speed = 1, style } = body;
+  const { input, voice = "tr", speed = 1 } = body;
+  const engine = body.engine ?? undefined;
+  const style = body.style ?? undefined;
   if (typeof input !== "string" || input.trim() === "") {
     sendJson(res, 400, errorBody("bad_request", "input must be a non-empty string."));
     return;
@@ -434,10 +485,20 @@ async function speech(req: IncomingMessage, res: ServerResponse, routes: Routes)
     sendJson(res, 413, errorBody("too_large", `input must be at most ${MAX_SPEECH_CHARS} characters.`));
     return;
   }
-  if (typeof voice !== "string" || !(SPEECH_VOICES as readonly string[]).includes(voice)) {
-    sendJson(res, 400, errorBody("unsupported_voice", `voice must be one of: ${SPEECH_VOICES.join(", ")}.`));
+  if (typeof voice !== "string" || !(SPEECH_LANGUAGES as readonly string[]).includes(voice)) {
+    sendJson(res, 400, errorBody("unsupported_voice", `voice must be one of: ${SPEECH_LANGUAGES.join(", ")}.`));
     return;
   }
+  const lang = voice as SpeechLanguage;
+  if (engine !== undefined && (typeof engine !== "string" || !(ENGINE_IDS as string[]).includes(engine))) {
+    sendJson(res, 400, errorBody("unsupported_engine", `engine must be one of: ${ENGINE_IDS.join(", ")}.`));
+    return;
+  }
+  if (engine !== undefined && !SPEECH_ENGINES[engine as SpeechEngineId].includes(lang)) {
+    sendJson(res, 400, errorBody("unsupported_engine", `the ${engine} engine does not speak ${lang}.`));
+    return;
+  }
+  const engineId = (engine as SpeechEngineId | undefined) ?? enginesFor(lang, routes.speech)[0] ?? DEFAULT_ENGINES[lang];
   if (typeof speed !== "number" || !Number.isFinite(speed) || speed < MIN_SPEECH_SPEED || speed > MAX_SPEECH_SPEED) {
     sendJson(res, 400, errorBody("bad_request", `speed must be a number from ${MIN_SPEECH_SPEED} to ${MAX_SPEECH_SPEED}.`));
     return;
@@ -446,21 +507,30 @@ async function speech(req: IncomingMessage, res: ServerResponse, routes: Routes)
     sendJson(res, 400, errorBody("unsupported_style", "style must be a string."));
     return;
   }
+  if (style !== undefined && engineId === "ema") {
+    sendJson(res, 400, errorBody("unsupported_style", "the ema engine has no styles."));
+    return;
+  }
 
-  const model = routes.speech.get(voice as SpeechVoice);
+  const model = routes.speech.get(engineId);
   if (!model?.life.loadable) {
-    sendJson(res, 503, errorBody("voice_unavailable", "The voice files are not installed with this copy of the app."));
+    sendJson(res, 503, errorBody("voice_unavailable", `The ${engineId} voice files are not installed with this copy of the app.`));
     return;
   }
   const { life, info } = model;
   if (style !== undefined && !info.styles.includes(style)) {
-    const message = info.styles.length > 0 ? `style must be one of: ${info.styles.join(", ")}.` : `the ${voice} voice has no styles.`;
+    const message = info.styles.length > 0 ? `style must be one of: ${info.styles.join(", ")}.` : `the ${engineId} engine has no styles.`;
     sendJson(res, 400, errorBody("unsupported_style", message));
     return;
   }
+  routes.chosen.set(lang, engineId);
+  const inUse = new Set(routes.chosen.values());
+  for (const [id, other] of routes.speech) {
+    if (!inUse.has(id)) other.life.releaseIdle(`no language speaks with the ${id} voice now`);
+  }
   life.begin();
   try {
-    await speak(res, life, info, { input, speed, style: style ?? info.defaultStyle });
+    await speak(res, life, info, { input, lang, speed, style: style ?? info.defaultStyle });
   } finally {
     life.end();
   }
@@ -469,10 +539,10 @@ async function speech(req: IncomingMessage, res: ServerResponse, routes: Routes)
 async function speak(
   res: ServerResponse,
   life: LazyModel<SpeechEngine>,
-  info: SpeechVoiceInfo,
-  request: { input: string; speed: number; style: string | undefined },
+  info: SpeechEngineInfo,
+  request: { input: string; lang: SpeechLanguage; speed: number; style: string | undefined },
 ): Promise<void> {
-  const { input, speed, style } = request;
+  const { input, lang, speed, style } = request;
   const acquired = await life.acquire();
   if (!acquired.engine) {
     const headers: Record<string, string> =
@@ -487,7 +557,7 @@ async function speak(
   };
   res.on("close", onClose);
   try {
-    for await (const pcm of acquired.engine.stream(input, { speed, signal: abort.signal, ...(style ? { style } : {}) })) {
+    for await (const pcm of acquired.engine.stream(input, { lang, speed, signal: abort.signal, ...(style ? { style } : {}) })) {
       if (abort.signal.aborted) break;
       if (!res.headersSent) startAudio(res, info.sampleRate);
       if (!res.write(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength))) {

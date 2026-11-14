@@ -1,9 +1,9 @@
 import { Worker } from "node:worker_threads";
 
 /**
- * A voice, held in a worker thread of its own: separate from the embedding
- * model's and from the other language's voice, so each loads, idles out and
- * unloads on its own schedule, and `terminate()` hands that voice's wasm
+ * A voice engine, held in a worker thread of its own: separate from the
+ * embedding model's and from the other engines, so each loads, idles out and
+ * unloads on its own schedule, and `terminate()` hands that engine's wasm
  * memory back without touching the others.
  * See worker-engine.ts for why a worker at all.
  *
@@ -12,17 +12,22 @@ import { Worker } from "node:worker_threads";
  * worker at its next ONNX run.
  */
 
-/** Which model the worker holds: EMA Lightning for Turkish, Kokoro for English. */
-export type SpeechVoice = "tr" | "en";
+/** The languages the bundled voices speak. */
+export type SpeechLanguage = "tr" | "en";
+
+/** Which model a worker holds: EMA Lightning (Turkish), Kokoro (English) or Supertonic (both). */
+export type SpeechEngineId = "ema" | "kokoro" | "supertonic";
 
 export interface SpeechWorkerInit {
-  voice: SpeechVoice;
+  engine: SpeechEngineId;
   voiceDir: string;
   wasmDir: string;
   numThreads: number;
 }
 
-export type SpeechWorkerRequest = { type: "speak"; id: number; text: string; speed: number; style?: string } | { type: "cancel"; id: number };
+export type SpeechWorkerRequest =
+  | { type: "speak"; id: number; text: string; lang: SpeechLanguage; speed: number; style?: string }
+  | { type: "cancel"; id: number };
 
 export type SpeechWorkerReply =
   | { type: "ready" }
@@ -32,9 +37,10 @@ export type SpeechWorkerReply =
   | { type: "error"; id: number; message: string };
 
 export interface SpeechOptions {
+  lang: SpeechLanguage;
   speed: number;
   signal: AbortSignal;
-  /** The English voice's style; the Turkish voice has none. */
+  /** The engine's voice style; EMA has none. */
   style?: string;
 }
 
@@ -96,7 +102,7 @@ class WorkerSpeechEngine implements SpeechEngine {
     });
     const onAbort = (): void => notify();
     signal.addEventListener("abort", onAbort);
-    this.#worker.postMessage({ type: "speak", id, text, speed: options.speed, style: options.style } satisfies SpeechWorkerRequest);
+    this.#worker.postMessage({ type: "speak", id, text, lang: options.lang, speed: options.speed, style: options.style } satisfies SpeechWorkerRequest);
     try {
       for (;;) {
         const next = queue.shift();
@@ -132,7 +138,7 @@ class WorkerSpeechEngine implements SpeechEngine {
 }
 
 /**
- * Start a worker running `script` and resolve once the voice has loaded.
+ * Start a worker running `script` and resolve once its engine has loaded.
  * Rejects, with the worker already gone, when the load fails.
  */
 export function startSpeechWorker(script: string, init: SpeechWorkerInit): Promise<SpeechEngine> {

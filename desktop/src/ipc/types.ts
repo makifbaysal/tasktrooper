@@ -792,18 +792,40 @@ export interface RemoteAccessState {
 /** The languages a person can talk to an agent in. Anything else has no voice. */
 export type VoiceLanguage = "tr" | "en";
 
+/**
+ * The bundled voice engines: EMA Lightning reads Turkish, Kokoro English,
+ * Supertonic both.
+ */
+export const VOICE_ENGINES = ["ema", "kokoro", "supertonic"] as const;
+export type VoiceEngine = (typeof VOICE_ENGINES)[number];
+
+export interface VoiceEngineOption {
+  engine: VoiceEngine;
+  /**
+   * Its styles (speakers), its default first; empty for EMA, which has one.
+   * Kokoro's are `af_heart`, `am_michael`, `bf_emma`, … (a/b American or
+   * British, f/m female or male); Supertonic's `F1`…`F5` and `M1`…`M5`.
+   */
+  styles: string[];
+}
+
+/** Which bundled engine and style read a text; either left out is the default. */
+export interface VoiceChoice {
+  engine?: VoiceEngine;
+  style?: string;
+}
+
 export interface VoiceCapabilities {
   /** This computer can turn speech in this language into text (macOS's recognizer). */
   listen: Record<VoiceLanguage, boolean>;
-  /** A bundled voice reads this language; false means the page falls back to the OS voice. */
+  /** A bundled engine reads this language; false means the page falls back to the OS voice. */
   speak: Record<VoiceLanguage, boolean>;
   /**
-   * The styles (speakers) the bundled voice offers per language, the default
-   * first; empty for a voice with one speaker or none bundled. English's are
-   * Kokoro's names: `af_heart`, `am_michael`, `bf_emma`, … (a/b American or
-   * British, f/m female or male).
+   * The bundled engines that read each language, the one a `speak` without
+   * an engine uses first (EMA for Turkish and Kokoro for English, when this
+   * copy has them); empty where there is none.
    */
-  speakStyles: Record<VoiceLanguage, string[]>;
+  speakEngines: Record<VoiceLanguage, VoiceEngineOption[]>;
 }
 
 /** Speech recognition for one utterance, pushed as it happens. */

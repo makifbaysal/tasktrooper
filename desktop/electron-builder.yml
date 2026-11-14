@@ -76,7 +76,7 @@ extraResources:
   # The embedder: its JS bundle plus onnxruntime-web's staged .wasm/.mjs runtime
   # files, built by `npm run build:embedder` into this package's own dist/. The
   # embedding model downloads into userData at runtime; the Turkish and English
-  # voices (`voice/`, ~133 MB, pinned and hash-checked at build time) ship here. A flat
+  # voices (`voice/`, ~241 MB, pinned and hash-checked at build time) ship here. A flat
   # directory, not a node_modules tree, which is exactly why engine.ts points
   # `ort.env.wasm.wasmPaths` at it explicitly rather than relying on relative
   # auto-resolution. `to: embedder` is the same name embedderScriptPath()

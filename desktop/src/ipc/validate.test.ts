@@ -498,11 +498,27 @@ describe("voice validators", () => {
     expect(() => validateVoiceSpeak({ lang: "tr", text: "x", speed: Number.NaN })).toThrow(ValidationError);
   });
 
-  it("takes an optional style shaped like a voice style name", () => {
-    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", style: "bm_george" })).toEqual({ lang: "en", text: "Hi.", speed: 1, style: "bm_george" });
-    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", style: null })).toEqual({ lang: "en", text: "Hi.", speed: 1 });
-    for (const style of ["", "af", "AF_HEART", "af_heart2", "af_heart; rm", "../af_heart", `af_${"x".repeat(40)}`, 3]) {
-      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", style })).toThrow(ValidationError);
+  it("takes an optional voice: an engine from the fixed set and a style shaped like a style name", () => {
+    const base = { lang: "en", text: "Hi.", speed: 1 };
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { style: "bm_george" } })).toEqual({ ...base, style: "bm_george" });
+    expect(validateVoiceSpeak({ lang: "tr", text: "Hi.", voice: { engine: "supertonic", style: "F1" } })).toEqual({
+      ...base,
+      lang: "tr",
+      engine: "supertonic",
+      style: "F1",
+    });
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { engine: "kokoro" } })).toEqual({ ...base, engine: "kokoro" });
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { engine: null, style: null } })).toEqual(base);
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: null })).toEqual(base);
+    expect(validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { style: "x".repeat(32) } }).style).toHaveLength(32);
+    for (const engine of ["", "espeak", "EMA", 3, {}]) {
+      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { engine } })).toThrow(ValidationError);
+    }
+    for (const style of ["", "af heart", "af-heart", "af_heart; rm", "../af_heart", "x".repeat(33), "İ1", 3]) {
+      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", voice: { style } })).toThrow(ValidationError);
+    }
+    for (const voice of ["supertonic", 3, ["F1"]]) {
+      expect(() => validateVoiceSpeak({ lang: "en", text: "Hi.", voice })).toThrow(ValidationError);
     }
   });
 });
