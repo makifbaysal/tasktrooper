@@ -44,6 +44,12 @@ export const frame = {
         markAllRead: "Marcar todas como leídas",
         unreadBadge: "{count} sin leer",
         unreadBadgeOverflow: "9+",
+        items: {
+          review: "{task} está esperando tu revisión",
+          uat: "{task} está esperando tu prueba de aceptación (UAT)",
+          decision: "{task} está esperando tu decisión",
+          question: "Un agente tiene una pregunta sobre {task}",
+        },
       },
       toolchain: {
         title: "Configuración del ordenador",
@@ -97,7 +103,7 @@ export const frame = {
       home: "Inicio",
       team: "Equipo",
       newAgent: "Nuevo agente",
-      unreadAgent: "Mensaje nuevo",
+      unreadAgentCount: "{count} mensajes sin leer",
       management: "Gestión",
       teamMemory: "Memoria del equipo",
       settings: "Configuración",

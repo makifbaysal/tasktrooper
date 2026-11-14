@@ -1,7 +1,8 @@
-import { AlertTriangle, Bell, CheckCircle2, HelpCircle, MessageSquare } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, HelpCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { ActivityItem, BoardTask } from "@/api";
+import type { ActivityItem, Agent, BoardTask } from "@/api";
+import { AgentAvatar } from "@/components/agent/AgentAvatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,19 +50,25 @@ function writeCursor(cursor: ReadCursor): void {
   }
 }
 
-const KIND_ICON: Record<NotificationItem["kind"], typeof MessageSquare> = {
-  comment: MessageSquare,
+type SystemKind = "review" | "uat" | "decision" | "question";
+
+const KIND_ICON: Record<SystemKind, typeof CheckCircle2> = {
   review: CheckCircle2,
   uat: CheckCircle2,
   decision: AlertTriangle,
   question: HelpCircle,
 };
 
-interface NotificationCenterProps {
-  onAgentSeen: (agentId: string, iso: string) => void;
+function isSenderKind(kind: NotificationItem["kind"]): kind is "comment" | "chat" {
+  return kind === "comment" || kind === "chat";
 }
 
-export function NotificationCenter({ onAgentSeen }: NotificationCenterProps) {
+interface NotificationCenterProps {
+  onAgentSeen: (agentId: string, iso: string) => void;
+  agents?: Agent[];
+}
+
+export function NotificationCenter({ onAgentSeen, agents = [] }: NotificationCenterProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -75,7 +82,8 @@ export function NotificationCenter({ onAgentSeen }: NotificationCenterProps) {
     onValue: (data) => setTasks((prev) => mergeTaskList(prev, data.tasks ?? [])),
   });
 
-  const items = useMemo(() => toNotificationItems(activity, tasks), [activity, tasks]);
+  const agentById = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
+  const items = useMemo(() => toNotificationItems(activity, tasks, agents), [activity, tasks, agents]);
 
   // First install (or first run after this shipped): nothing in the existing
   // history is "unread" — only what arrives after this seed is.
@@ -157,17 +165,27 @@ export function NotificationCenter({ onAgentSeen }: NotificationCenterProps) {
             ) : (
               items.map((item) => {
                 const isUnread = unread.some((u) => u.id === item.id);
-                const Icon = KIND_ICON[item.kind];
+                const sender = isSenderKind(item.kind);
+                const Icon = sender ? null : KIND_ICON[item.kind as SystemKind];
                 return (
                   <DropdownMenuItem
                     key={item.id}
                     onSelect={() => handleItemClick(item)}
                     className={cn("flex items-start gap-2.5 whitespace-normal py-2", isUnread && "bg-muted/40")}
                   >
-                    <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    {sender ? (
+                      <AgentAvatar
+                        name={item.authorName ?? "?"}
+                        slug={item.agentId ? agentById.get(item.agentId)?.catalog_slug : undefined}
+                        size="sm"
+                        className="mt-0.5"
+                      />
+                    ) : (
+                      Icon && <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className={cn("truncate text-sm", isUnread ? "font-semibold" : "font-normal")}>
-                        {item.title}
+                        {sender ? item.authorName : t(item.titleKey ?? "", item.titleVars)}
                       </p>
                       <p className="line-clamp-2 text-xs text-muted-foreground">{item.body}</p>
                       <p className="mt-0.5 text-micro text-muted-foreground">{formatRelativeDate(item.createdAt)}</p>

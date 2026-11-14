@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ActivityItem, BoardTask } from "@/api";
+import type { ActivityItem, Agent, BoardTask } from "@/api";
 import {
   agentIdForItem,
   cursorFor,
@@ -7,6 +7,25 @@ import {
   partitionByCursor,
   toNotificationItems,
 } from "@/lib/notifications";
+
+function agent(overrides: Partial<Agent> = {}): Agent {
+  return {
+    id: "agent-1",
+    name: "Rex",
+    description: "",
+    subagent_type: "general",
+    system_prompt: "",
+    provider_type: "",
+    model: "",
+    model_heavy: "",
+    tool_policy: {},
+    skill_ids: [],
+    enabled: true,
+    self_evolution_enabled: false,
+    created_at: "2026-09-17T10:00:00Z",
+    ...overrides,
+  };
+}
 
 function task(overrides: Partial<BoardTask> = {}): BoardTask {
   return {
@@ -52,11 +71,63 @@ function movedItem(overrides: Partial<ActivityItem> = {}): ActivityItem {
   };
 }
 
+function chatItem(overrides: Partial<ActivityItem> = {}): ActivityItem {
+  return {
+    id: "evt-chat-1",
+    kind: "chat_message",
+    agent_id: "agent-1",
+    session_id: "session-1",
+    summary: "Here's the status update.",
+    created_at: "2026-09-18T12:00:00Z",
+    ...overrides,
+  };
+}
+
 describe("toNotificationItems", () => {
-  it("includes an agent comment", () => {
+  it("includes an agent comment with the sender's name and the content alone as the body", () => {
     const items = toNotificationItems([commentItem()], [task()]);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ id: "evt-1", taskId: "task-1", agentId: "agent-1", kind: "comment" });
+    expect(items[0]).toMatchObject({
+      id: "evt-1",
+      taskId: "task-1",
+      agentId: "agent-1",
+      kind: "comment",
+      authorName: "Rex",
+      body: "Done.",
+    });
+  });
+
+  it("includes a direct agent chat message, resolving the sender's name from the agents list", () => {
+    const items = toNotificationItems([chatItem()], [task()], [agent({ id: "agent-1", name: "Rex" })]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: "evt-chat-1",
+      agentId: "agent-1",
+      sessionId: "session-1",
+      kind: "chat",
+      authorName: "Rex",
+      body: "Here's the status update.",
+      path: "/agents/agent-1/chat/session-1",
+    });
+  });
+
+  it("falls back to a generic sender name for a chat message from an unknown agent", () => {
+    const items = toNotificationItems([chatItem()], [task()], []);
+    expect(items[0].authorName).toBe("An agent");
+  });
+
+  it("excludes a chat message with no agent id", () => {
+    const orphan = chatItem({ agent_id: undefined });
+    expect(toNotificationItems([orphan], [task()])).toHaveLength(0);
+  });
+
+  it("carries a titleKey + {task} var for review/uat/decision/question instead of a hardcoded title", () => {
+    const items = toNotificationItems([movedItem()], [task({ key: "T-9" })]);
+    expect(items[0]).toMatchObject({
+      kind: "review",
+      titleKey: "frame.layout.header.notificationCenter.items.review",
+      titleVars: { task: "T-9" },
+    });
   });
 
   it("excludes a human or system comment", () => {
