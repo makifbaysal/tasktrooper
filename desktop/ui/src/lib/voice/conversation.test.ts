@@ -139,23 +139,37 @@ describe("VoiceConversation", () => {
     expect(t.conv.snapshot.state).toBe("listening");
   });
 
-  it("stops when loud input goes on over the bundled voice, and listens", async () => {
+  it("never stops for loudness alone (a fan, a door), nor for misheard echo", async () => {
+    const t = setup();
+    await toThinking(t);
+    t.conv.replyProgress("Look at the board for the team.\n");
+    await flush();
+    mic(0.001);
+    await flush();
+    const bargeId = (await t.host.listenStart.mock.results.at(-1)!.value).id;
+    for (let i = 0; i < 10; i++) mic(0.4);
+    t.transcript({ id: bargeId, type: "partial", text: "it" });
+    t.transcript({ id: bargeId, type: "partial", text: "look at the bored for a teams" });
+    expect(t.onInterrupt).not.toHaveBeenCalled();
+    expect(t.conv.snapshot.state).toBe("speaking");
+  });
+
+  it("stops for two new words while someone is loud over the bundled voice", async () => {
     const t = setup();
     await toThinking(t);
     t.conv.replyProgress("Uzun bir cevap veriyorum.\n");
     await flush();
-    expect(t.conv.snapshot.state).toBe("speaking");
-
     mic(0.001);
     await flush();
-    mic(0.2);
-    mic(0.001);
-    mic(0.2);
+    const bargeId = (await t.host.listenStart.mock.results.at(-1)!.value).id;
+    t.transcript({ id: bargeId, type: "partial", text: "dur bekle" });
     expect(t.onInterrupt).not.toHaveBeenCalled();
-    mic(0.2);
+    mic(0.3);
+    mic(0.3);
+    mic(0.3);
+    t.transcript({ id: bargeId, type: "partial", text: "dur bekle" });
     expect(t.onInterrupt).toHaveBeenCalled();
     expect(t.host.speakCancel).toHaveBeenCalled();
-    await flush();
     expect(t.conv.snapshot.state).toBe("listening");
   });
 
@@ -175,8 +189,10 @@ describe("VoiceConversation", () => {
     expect(t.onInterrupt).not.toHaveBeenCalled();
 
     t.transcript({ id: bargeId, type: "partial", text: "uzun bir cevap dur bekle" });
+    expect(t.onInterrupt).not.toHaveBeenCalled();
+    t.transcript({ id: bargeId, type: "partial", text: "uzun bir cevap dur bekle lütfen" });
     expect(t.onInterrupt).toHaveBeenCalled();
-    expect(t.conv.snapshot).toMatchObject({ state: "listening", transcript: "dur bekle" });
+    expect(t.conv.snapshot).toMatchObject({ state: "listening", transcript: "dur bekle lütfen" });
     expect(t.host.listenCancel).not.toHaveBeenCalledWith(bargeId);
 
     mic(0.001, END_OF_TURN_MS + 50);

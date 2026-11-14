@@ -56,11 +56,17 @@ export interface VoiceConversationOptions {
 
 /** Silence after speech that ends an utterance. */
 export const END_OF_TURN_MS = 1_100;
-/** Of the last BARGE_WINDOW mic chunks (0.1 s each), this many loud ones are talking over the agent. */
+/** Of the last BARGE_WINDOW mic chunks (0.1 s each), this many loud ones mean someone is talking. */
 export const BARGE_LOUD_CHUNKS = 3;
 export const BARGE_WINDOW = 5;
-/** Words heard while speaking that the agent did not say, before it counts as an interruption. */
-export const BARGE_WORDS = 2;
+/**
+ * Words heard while speaking that the agent did not say, before it counts as
+ * an interruption: BARGE_WORDS on their own, BARGE_WORDS_LOUD while the mic is
+ * also loud (bundled voice only — the OS voice's own loudness reaches the mic).
+ * Loudness alone never interrupts: a fan or a door is loud too.
+ */
+export const BARGE_WORDS = 3;
+export const BARGE_WORDS_LOUD = 2;
 /** Chunks (0.1 s each) kept so the start of an interruption is not lost. */
 const PREROLL_CHUNKS = 8;
 
@@ -218,12 +224,8 @@ export class VoiceConversation {
         if (!this.#o.bargeIn) return;
         if (this.#bargeId) void this.#o.host.listenAudio(this.#bargeId, pcm);
         else this.#startBarge();
-        // The OS voice plays outside the page, where echo cancellation does
-        // not reach: its loudness is the agent's own, so only words count.
-        if (!this.#o.bundledVoice) return;
-        this.#loudHistory.push(rms > Math.max(0.03, this.#noiseFloor * 4));
+        this.#loudHistory.push(rms > Math.max(0.05, this.#noiseFloor * 6));
         if (this.#loudHistory.length > BARGE_WINDOW) this.#loudHistory.shift();
-        if (this.#loudHistory.filter(Boolean).length >= BARGE_LOUD_CHUNKS) this.#interrupt();
         return;
       }
       default:
@@ -256,6 +258,11 @@ export class VoiceConversation {
       return;
     }
     const heard = e.text ? (this.#trimEcho ? this.#withoutEcho(e.text) : e.text) : this.#snap.transcript;
+    // An interruption that turns out to be only echo and a stray word is not a turn.
+    if (this.#trimEcho && this.#novelWords(heard) < BARGE_WORDS_LOUD) {
+      void this.#listen();
+      return;
+    }
     this.#send(heard.trim());
   }
 
@@ -299,7 +306,7 @@ export class VoiceConversation {
   #onBargeTranscript(e: DesktopVoiceTranscriptEvent): void {
     if (e.type === "ready") return;
     if (e.type === "partial") {
-      if (this.#snap.state === "speaking" && this.#novelWords(e.text) >= BARGE_WORDS) this.#interrupt(e.text);
+      if (this.#snap.state === "speaking" && this.#isTalkingOver(e.text)) this.#interrupt(e.text);
       return;
     }
     // The recognizer ended on its own (its silence limit, an error) while the
@@ -307,7 +314,7 @@ export class VoiceConversation {
     this.#bargeId = null;
     if (this.#snap.state !== "speaking") return;
     const text = e.type === "final" ? e.text : "";
-    if (this.#novelWords(text) >= BARGE_WORDS) {
+    if (this.#isTalkingOver(text)) {
       this.#silence();
       this.#o.onInterrupt();
       this.#resetTurn();
@@ -348,15 +355,37 @@ export class VoiceConversation {
       .filter(Boolean);
   }
 
+  #isTalkingOver(text: string): boolean {
+    const novel = this.#novelWords(text);
+    if (novel >= BARGE_WORDS) return true;
+    const loud = this.#o.bundledVoice && this.#loudHistory.filter(Boolean).length >= BARGE_LOUD_CHUNKS;
+    return loud && novel >= BARGE_WORDS_LOUD;
+  }
+
+  /**
+   * Words the agent did not just say. The recognizer hears the agent's own
+   * voice slightly wrong ("bored" for "board"), so a near match is echo too,
+   * and very short words ("it", "a") are too easily made out of noise to count.
+   */
   #novelWords(text: string): number {
-    return this.#words(text).filter((w) => !this.#echoWords.has(w)).length;
+    return this.#words(text).filter((w) => w.length >= 3 && !this.#isEcho(w)).length;
+  }
+
+  #isEcho(word: string): boolean {
+    if (this.#echoWords.has(word)) return true;
+    for (const said of this.#echoWords) {
+      if (Math.abs(said.length - word.length) > 2) continue;
+      if (said.length >= 4 && word.length >= 4 && said.slice(0, 4) === word.slice(0, 4)) return true;
+      if (editDistance(said, word) <= (word.length >= 6 ? 2 : 1)) return true;
+    }
+    return false;
   }
 
   /** The heard text without the agent's own words it starts with. */
   #withoutEcho(text: string): string {
     const parts = text.trim().split(/\s+/);
     let i = 0;
-    while (i < parts.length && this.#words(parts[i]).every((w) => this.#echoWords.has(w))) i++;
+    while (i < parts.length && this.#words(parts[i]).every((w) => w.length < 3 || this.#isEcho(w))) i++;
     return parts.slice(i).join(" ");
   }
 
@@ -480,4 +509,16 @@ function micError(err: unknown): string {
   }
   if (err instanceof DOMException && err.name === "NotFoundError") return "microphone-missing";
   return err instanceof Error ? err.message : String(err);
+}
+
+function editDistance(a: string, b: string): number {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) {
+      row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = row;
+  }
+  return prev[b.length];
 }
