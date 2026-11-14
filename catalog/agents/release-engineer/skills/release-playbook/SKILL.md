@@ -32,7 +32,7 @@ returns, among the usual merge fields, `release`:
 | `release.mode` | What it means | What you do |
 |---|---|---|
 | `none` | Nothing deploys this component (a library, docs) — the merge itself was the release. | Nothing. |
-| `batch` | This component (desktop, mobile and friends) ships in a human-cut batch: the merge joined the component's draft release. | Nothing — the task stays in `done` until a human cuts it. Only when a person asks you in a chat to ship it: `propose_release_cut`, which prepares the cut for their approval and ships nothing. |
+| `batch` | This component (desktop, mobile and friends) ships in a human-cut batch: the merge joined the component's draft release. | Nothing — the task stays in `done` until a human cuts it. |
 | `on_merge` | The merge itself deploys (a workflow on push, or a provider's git integration). | `watch_release`. |
 | `dispatch` | A deploy workflow needs to be dispatched at the release tag. | `deploy_release`, then `watch_release`. |
 
