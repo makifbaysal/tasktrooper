@@ -113,10 +113,12 @@ describe("VoiceConversation", () => {
     const t = setup();
     await toThinking(t);
 
-    t.conv.replyProgress("Tamam. Hemen ");
+    t.conv.replyProgress("Tamam");
     expect(t.conv.snapshot.state).toBe("thinking");
-    t.conv.replyProgress("Tamam. Hemen bakıyorum.\n");
+    // A finished sentence is read while the rest of its line is still coming.
+    t.conv.replyProgress("Tamam. Hemen ");
     expect(t.conv.snapshot.state).toBe("speaking");
+    t.conv.replyProgress("Tamam. Hemen bakıyorum.\n");
     await flush();
     expect(t.host.speak).toHaveBeenCalledWith("tr", "Tamam.", undefined, undefined);
 
@@ -129,6 +131,21 @@ describe("VoiceConversation", () => {
     await vi.advanceTimersByTimeAsync(500);
     expect(t.conv.snapshot.state).toBe("listening");
     expect(t.host.listenStart).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops what is not said yet of a stretch that turned out to be thinking", async () => {
+    const t = setup();
+    await toThinking(t);
+    t.conv.replyProgress("Bir bakayım. Board'u açıyorum. Sonra");
+    await flush();
+    expect(t.host.speak).toHaveBeenCalledTimes(1);
+    t.conv.replyStretchClosed();
+    t.audio({ id: "s2", sampleRate: 48000, done: true });
+    await flush();
+    expect(t.host.speak).toHaveBeenCalledTimes(1);
+    t.conv.replyProgress("Üç iş var.\n");
+    await flush();
+    expect(t.host.speak).toHaveBeenLastCalledWith("tr", "Üç iş var.", undefined, undefined);
   });
 
   it("goes back to listening when the turn fails", async () => {

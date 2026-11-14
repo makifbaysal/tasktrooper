@@ -448,7 +448,10 @@ export function AgentChatPage() {
         signal: abort.signal,
         onProgress: (progress) => {
           if (!stillHere()) return;
-          if (options.voice) voiceRef.current.replyProgress(progress.pending);
+          if (options.voice) {
+            if (progress.reasoning.length > reasoningSoFar.length) voiceRef.current.replyStretchClosed();
+            voiceRef.current.replyProgress(progress.pending);
+          }
           // Mirrored into a plain local as well: the commit below runs in this
           // same closure and needs the final list, which the state variable
           // captured at render time cannot give it.

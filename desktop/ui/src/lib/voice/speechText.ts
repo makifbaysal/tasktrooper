@@ -79,12 +79,22 @@ export function completeSentences(text: string): { sentences: string[]; consumed
   for (const match of text.matchAll(SENTENCE_END)) {
     const end = (match.index ?? 0) + match[0].length;
     const sentence = text.slice(start, end).trim();
-    // "Dr. Ahmet" or "3. kat": a lone abbreviation or ordinal is not a sentence end.
-    if (/(?:^|\s)(?:\p{L}{1,3}|\d+)\.$/u.test(sentence) && !/[!?…]$/.test(sentence)) continue;
+    // "Dr. Ahmet", "3. kat" or "J. Smith": an abbreviation, an ordinal or an initial is not a sentence end.
+    const last = /(?:^|\s)([\p{L}.]+|\d+)\.$/u.exec(sentence)?.[1];
+    if (last && !/[!?…]$/.test(sentence) && isAbbreviation(last)) continue;
     if (sentence) sentences.push(sentence);
     start = end;
   }
   return { sentences, consumed: start };
+}
+
+const ABBREVIATIONS = new Set([
+  "dr", "prof", "doç", "av", "bkz", "vs", "vb", "örn", "sn", "yy", "no", "mr", "mrs", "ms", "st", "jr", "sr",
+  "e.g", "i.e", "etc", "inc", "ltd", "vol", "fig", "approx",
+]);
+
+function isAbbreviation(word: string): boolean {
+  return /^\d+$/.test(word) || /^\p{L}$/u.test(word) || ABBREVIATIONS.has(word.toLocaleLowerCase("tr"));
 }
 
 /**
@@ -96,7 +106,7 @@ export class SentenceFeed {
 
   /** New sentences of `markdown` (the reply so far). */
   push(markdown: string): string[] {
-    const text = spokenText(stripUnfinishedLine(markdown));
+    const text = spokenText(stableText(markdown));
     if (text.length < this.#spokenUpTo) {
       // The reply was rewritten under us (a stream restart); start over from it.
       this.#spokenUpTo = 0;
@@ -120,10 +130,38 @@ export class SentenceFeed {
 }
 
 /**
- * A line still being written can change meaning when it ends ("**bold" before
- * its closing marks), so only lines that already ended are spoken from.
+ * The part of a streaming reply that can be read without changing later:
+ * every finished line, plus the finished sentences of the line still being
+ * written, up to where something is left open ("**bold", "(aside", a `code`
+ * span, a [link) whose closing would change what is said). A line that may
+ * become a table row, a fence or a heading is left until it ends.
  */
-function stripUnfinishedLine(markdown: string): string {
+export function stableText(markdown: string): string {
   const nl = markdown.lastIndexOf("\n");
-  return nl === -1 ? "" : markdown.slice(0, nl + 1);
+  const done = nl === -1 ? "" : markdown.slice(0, nl + 1);
+  const tail = markdown.slice(nl + 1);
+  if (/^\s*(?:\||```|~~~|#)/.test(tail) || insideFence(done)) return done;
+  let safe = 0;
+  for (const match of tail.matchAll(/[.!?…]+["'”’]*(?=\s)/g)) {
+    const end = (match.index ?? 0) + match[0].length;
+    if (balanced(tail.slice(0, end))) safe = end;
+  }
+  return safe === 0 ? done : `${done}${tail.slice(0, safe)}\n`;
+}
+
+function insideFence(markdown: string): boolean {
+  let open = false;
+  for (const line of markdown.split("\n")) if (FENCE.test(line)) open = !open;
+  return open;
+}
+
+function balanced(text: string): boolean {
+  const count = (re: RegExp) => (text.match(re) ?? []).length;
+  return (
+    count(/\(/g) === count(/\)/g) &&
+    count(/\[/g) === count(/\]/g) &&
+    count(/`/g) % 2 === 0 &&
+    count(/\*\*/g) % 2 === 0 &&
+    count(/~~/g) % 2 === 0
+  );
 }

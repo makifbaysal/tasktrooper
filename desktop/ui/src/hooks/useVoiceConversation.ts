@@ -46,6 +46,7 @@ export interface VoiceControls {
   start(): void;
   stop(): void;
   replyProgress(markdown: string): void;
+  replyStretchClosed(): void;
   replyDone(markdown: string | null): void;
 }
 
@@ -94,6 +95,7 @@ export function useVoiceConversation(
   }, [host, lang, caps]);
 
   const replyProgress = useCallback((markdown: string) => convRef.current?.replyProgress(markdown), []);
+  const replyStretchClosed = useCallback(() => convRef.current?.replyStretchClosed(), []);
   const replyDone = useCallback((markdown: string | null) => convRef.current?.replyDone(markdown), []);
 
   return {
@@ -104,6 +106,7 @@ export function useVoiceConversation(
     start,
     stop,
     replyProgress,
+    replyStretchClosed,
     replyDone,
   };
 }

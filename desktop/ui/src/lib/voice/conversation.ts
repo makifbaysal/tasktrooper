@@ -159,6 +159,17 @@ export class VoiceConversation {
     this.#enqueue(this.#feed.push(markdown));
   }
 
+  /**
+   * The stretch being written turned out to be thinking (a tool call followed
+   * it): what of it is not said yet is dropped, and the next stretch is read
+   * from its start.
+   */
+  replyStretchClosed(): void {
+    if (this.#snap.state !== "thinking" && this.#snap.state !== "speaking") return;
+    this.#queue = [];
+    this.#feed.reset();
+  }
+
   /** The turn ended: the final reply, or null when it failed or was stopped. */
   replyDone(markdown: string | null): void {
     if (this.#snap.state !== "thinking" && this.#snap.state !== "speaking") return;

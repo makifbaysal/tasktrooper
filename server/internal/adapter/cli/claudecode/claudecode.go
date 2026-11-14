@@ -432,6 +432,19 @@ func (g *initGuard) SetParentCall(callID string) {
 	}
 }
 
+// OnTextStart and OnTextDelta forward a streamed reply for the same reason.
+func (g *initGuard) OnTextStart() {
+	if ds, ok := g.sink.(deltaSink); ok {
+		ds.OnTextStart()
+	}
+}
+
+func (g *initGuard) OnTextDelta(text string) {
+	if ds, ok := g.sink.(deltaSink); ok {
+		ds.OnTextDelta(text)
+	}
+}
+
 func (g *initGuard) OnInit(init sessionInit) {
 	log.Info().
 		Str("task_key", g.label).
@@ -637,6 +650,11 @@ func (e *Executor) buildArgs(inv invocation, systemPromptPath string) []string {
 		"--disallowedTools", disallowedBashCommands+","+nativeQuestionTool,
 		"--setting-sources", e.settingSources,
 	)
+	// A chat someone is watching (or listening to) gets its reply token by
+	// token; without this the CLI hands over each text block only when it ends.
+	if inv.stream.OnText != nil {
+		args = append(args, "--include-partial-messages")
+	}
 	if systemPromptPath != "" {
 		args = append(args, "--append-system-prompt-file", systemPromptPath)
 	}

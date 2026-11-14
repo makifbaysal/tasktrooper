@@ -304,3 +304,27 @@ func TestExecuteChatHandsAttachedImagesToTheCLIAsFiles(t *testing.T) {
 		assert.NotContains(t, prompt, "Routes are registered in handler.go.")
 	})
 }
+
+// A watched chat asks the CLI for partial messages and streams the reply as it
+// is written: each delta goes out once, the whole block that follows only adds
+// what the deltas missed, and thinking never reaches the stream.
+func TestExecuteChatStreamsTheReplyTokenByToken(t *testing.T) {
+	ex, workDir := newTestExecutor(t, Config{}, "chat_partial.jsonl")
+
+	var rec recorder
+	_, err := ex.ExecuteChat(context.Background(), chatExecution(workDir), rec.stream())
+	require.NoError(t, err)
+
+	assert.Contains(t, readArgv(t, workDir), "--include-partial-messages")
+	assert.Equal(t, []string{
+		"t:Routes are ", "t:registered", "t: in handler.go.", "t:\n\n", "t:Anything else?",
+	}, rec.events)
+	assert.Equal(t, "Routes are registered in handler.go.\n\nAnything else?", rec.text.String())
+}
+
+func TestExecuteChatWithoutAStreamDoesNotAskForPartialMessages(t *testing.T) {
+	ex, workDir := newTestExecutor(t, Config{}, "chat_reply.jsonl")
+	_, err := ex.ExecuteChat(context.Background(), chatExecution(workDir), port.ChatStream{})
+	require.NoError(t, err)
+	assert.NotContains(t, readArgv(t, workDir), "--include-partial-messages")
+}
