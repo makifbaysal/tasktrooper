@@ -34,7 +34,7 @@ Prioritization decides what agents pick up next. TaskTrooper is a local, single-
 
 When scoping one feature or task:
 - **Must** → this task's `acceptance_criteria`.
-- **Should / Could** → separate backlog tasks, not folded into this one's criteria.
+- **Should / Could** → separate backlog tasks, not folded into this one's criteria — one task per repository and role holding all of that feature's Should/Could items, not one task per item.
 - **Won't** → the `description`'s Out of Scope line, with the reason.
 
 ## RICE/ICE — only for an explicit "what's next" call

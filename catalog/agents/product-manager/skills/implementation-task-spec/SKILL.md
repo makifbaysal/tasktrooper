@@ -7,9 +7,24 @@ description: Use when you create an implementation board task directly - the req
 
 ## Overview
 
-An implementation task is a self-contained unit of work for one developer role. The recurring failures are bundling two layers into one task and vague, untestable acceptance criteria.
+An implementation task is a self-contained unit of work for one developer role. The recurring failures are bundling two layers into one task, cutting one feature into many small tasks, and vague, untestable acceptance criteria.
 
-**Core principle:** One task = one role = one deliverable.
+**Core principle:** One task = one role = one feature in one repository. Not smaller, not larger.
+
+## Sizing — how many tasks
+
+A board task is not free. Each one is a separate agent run that starts cold and re-reads the repository and the spec, and each one gets its own branch, pull request, code review, security review, QA pass and release. Five small tasks on one feature pay that five times and make the agents rediscover each other's work; one task pays it once and keeps the whole feature in one context.
+
+- **Default: one task per feature, per repository (per `component` in a monorepo), per role.** Everything the same developer does in the same codebase for the same feature — its endpoints, its screens, its validation, its tests, its copy — is one task with one checklist.
+- **Split only at a real boundary:**
+  - a different repository or a different developer role (backend / frontend / mobile / data / game) — those run in different workspaces;
+  - an unrelated feature, even in the same repository;
+  - a part the stakeholder wants shipped, approved or prioritised on its own (a Should/Could they may never start);
+  - a refactor or migration that must land before the feature — its own task, `blocked_by` in front;
+  - a change too large to review in one diff — over ~1,000 changed lines. Then cut it into two or three vertical slices that each work on their own, never into steps.
+- **Never split by** endpoint, screen, file, CRUD verb, acceptance criterion, or step ("create the model", "add the handler", "write the tests" are one task).
+- **Merge check before the first `create_board_task`:** write the list of tasks you are about to open. Any two with the same feature, repository and role become one, and their criteria one checklist.
+- **Several small asks in one message** for the same repository and role (three copy fixes on the same page, two tweaks to the same form) are one task with one criterion each, unless they are unrelated features or the stakeholder asked for them separately.
 
 ## create_board_task fields
 
@@ -36,7 +51,7 @@ An implementation task is a self-contained unit of work for one developer role. 
 - **Criteria describe the product, not the board.** A column move, a PR, a comment, a hand-off, an assignment, opening the next task — none of these is a criterion, and the create/update tools drop them. Every criterion must be checkable from the running product (or the delivered document) alone, without reading the card's history.
 - **Criteria are structured, not prose.** Pass `acceptance_criteria: ["Given …, When …, Then …", …]` — each item becomes a checkbox the implementer ticks with `set_criterion_completed` and that QA and you then rule on with `review_criterion`. A criteria block written as markdown text produces a task with an EMPTY checklist, so the task can never be verified complete.
 - **Tag repository and project.** Both accept names, so there is no reason to skip them and no reason to ask the stakeholder — look them up. To file a task that already exists, use `update_board_task` with `project`.
-- **One role, one deliverable.** Never bundle backend + frontend in one task.
+- **One role, one feature.** Never bundle backend + frontend in one task — and never cut one role's work on one feature in one repository into several tasks (Sizing above).
 - **Creation-only fields.** `derived_from` can only be set by `create_board_task` — `update_board_task` has no such field and silently ignores it; `task_type` too, unless `update_board_task`'s schema lists it. `assignee` can be set or corrected on an existing task with `update_board_task`. Fix a wrong one the update tool cannot change by `delete_board_task` + `create_board_task` (no `force` needed in backlog/todo).
 - **Secrets.** Never ask the stakeholder for a third-party API key in chat. If a task needs one configured, say so in `before_deploy` ("needs `X_API_KEY` configured for <env>") and tell the human where to set it — not a comment, which nobody reads at deploy time.
 - **Duplicate guard.** `create_board_task` returns `created:false` with the existing task when an open one has a near-identical title. Report "already on the board as T-n", not "created" — pass `allow_duplicate: true` only for genuinely different work that happens to share a title.
@@ -113,7 +128,9 @@ create_board_task(
 
 ## Common Mistakes
 
-- "Add export API and button" → two tasks.
+- "Add export API and button" → two tasks (two roles, two repositories).
+- "Add export endpoint", "Add export filters", "Add export tests" for the same backend → one task; that split triples the runs, reviews and releases for one feature.
+- One task per acceptance criterion or per screen of the same flow.
 - Aspirational AC ("works well").
 - No assignee, or a role that can't do the work.
 - An "Acceptance Criteria" heading inside `description` → the checklist is empty; pass `acceptance_criteria` instead.
@@ -124,5 +141,7 @@ create_board_task(
 ## Red Flags
 
 - AC mentions two layers/repos.
+- Two tasks you are about to create share feature, repository and assignee → merge them.
+- A chain of `blocked_by` between tasks with the same repository and assignee → usually one task cut into steps.
 - No error/auth criterion.
 - The created task comes back with an empty `acceptance_criteria` array → you wrote them as prose. Fix it with `update_board_task`.

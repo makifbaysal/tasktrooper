@@ -54,7 +54,7 @@ documents, without opening the board's history? If not, it is not a criterion.
 
 - **Observable + measurable.** "Then a 422 with message 'title too long'" — not "Then it handles it gracefully."
 - **At least one negative criterion where the feature accepts input or has permissions:** invalid input, unauthorized access, empty state. Not required for a pure copy or styling change.
-- **3–7 criteria per task.** More means the task should be split.
+- **3–7 criteria is typical; the feature decides, not the count.** A long list is a reason to check that the task does not bundle two roles, two repositories or two unrelated features — split those. One feature for one role in one repository stays one task even with 10–12 criteria: every extra task is another agent run, review and release. Drop criteria that restate each other before you split anything.
 - **No 'fast'/'user-friendly'/'robust'** — replace with a number or a concrete behavior.
 
 ## Mid-flight edits
@@ -99,7 +99,8 @@ Then they get 200 + text/csv with header "id,title,status,created_at"
 - Aspirational wording ("intuitive", "fast").
 - Only happy-path criteria, no negative, on a task with input or permissions.
 - A "Then" with no exact text, count or state — "an error appears" instead of the exact copy.
-- 12 criteria on one task → split it.
+- 12 criteria covering two features or two roles on one task → split it along that boundary.
+- One feature cut into several tasks just to keep each checklist short.
 - Criteria pasted into `description` as a markdown list instead of passed as `acceptance_criteria`.
 - Rewriting `acceptance_criteria` on a task already in progress instead of `cancel_criterion`.
 
