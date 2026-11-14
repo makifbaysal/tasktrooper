@@ -335,7 +335,7 @@ export const agentArea = {
         label: "Message {name}",
         placeholder: "Request a feature, report a bug or ask about the board…",
         send: "Send",
-        hint: "Enter to send · Shift+Enter for a new line",
+        hint: "Enter to send · Shift+Enter for a new line · @ to tag an agent, project or repository",
         failed: "Couldn't start a conversation",
         suggestions: {
           board: { label: "What's on the board?", message: "What's on the board right now?" },

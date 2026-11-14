@@ -327,7 +327,7 @@ export const agentArea = {
         label: "给 {name} 发消息",
         placeholder: "提出功能需求、报告缺陷或询问看板情况…",
         send: "发送",
-        hint: "Enter 发送 · Shift+Enter 换行",
+        hint: "Enter 发送 · Shift+Enter 换行 · @ 标记智能体、项目或仓库",
         failed: "无法开始对话",
         suggestions: {
           board: {
