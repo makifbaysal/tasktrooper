@@ -10,6 +10,16 @@ export const whatsNew = {
     help: "See what changed in the latest version of TaskTrooper.",
     open: "Show what's new",
   },
+  v0_3_18: {
+    title: "Talk to your agents, attach and tag anywhere, leaner task plans",
+    items: {
+      voiceChat: "Talk to agents out loud in Turkish or English: the reply is spoken as it streams, drawings appear on screen, and you can interrupt by talking. Pick the voice model and voice in Settings → Voice.",
+      attachAndMention: "Paste or attach files and images, and @-tag agents, projects and repositories, on Home, in the header's quick ask and in task comments.",
+      notifications: "The notification center shows who sent each notification with their avatar, in your language, and the sidebar badge counts what is really unread.",
+      onePerFeature: "The PM opens one task per feature, repository and role instead of many small ones, so each feature is built, reviewed and released once.",
+      releaseBatch: "The release engineer can propose a batch release for you to approve, and asks step by step how a component deploys.",
+    },
+  },
   v0_3_17: {
     title: "Hosted previews first, screenshots agents can see, no more QA ping-pong",
     items: {

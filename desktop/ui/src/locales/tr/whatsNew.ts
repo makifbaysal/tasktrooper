@@ -8,6 +8,16 @@ export const whatsNew = {
     help: "TaskTrooper'ın son sürümünde nelerin değiştiğini gör.",
     open: "Yenilikleri göster",
   },
+  v0_3_18: {
+    title: "Ajanlarla sesli konuş, her yerde ekle ve etiketle, daha sade görev planları",
+    items: {
+      voiceChat: "Ajanlarla Türkçe ya da İngilizce sesli konuş: cevap yazıldıkça okunur, çizimler ekranda görünür ve konuşarak araya girebilirsin. Ses modelini ve sesi Ayarlar → Ses'ten seç.",
+      attachAndMention: "Ana sayfada, üstteki hızlı sorma kutusunda ve görev yorumlarında dosya ve resim yapıştırıp ekleyebilir; ajanları, projeleri ve repoları @ ile etiketleyebilirsin.",
+      notifications: "Bildirim merkezi her bildirimi gönderenin adı ve avatarıyla, senin dilinde gösterir; kenar çubuğundaki sayaç gerçekten okunmamışları sayar.",
+      onePerFeature: "PM bir özellik, repo ve rol için çok sayıda küçük görev yerine tek görev açar; her özellik bir kez geliştirilir, incelenir ve yayınlanır.",
+      releaseBatch: "Release engineer onaylaman için toplu bir yayın önerebilir ve bir bileşenin nasıl deploy edildiğini adım adım sorar.",
+    },
+  },
   v0_3_17: {
     title: "Önce hosted preview, ajanların görebildiği ekran görüntüleri, QA ping-pong'u yok",
     items: {

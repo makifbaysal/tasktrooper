@@ -8,6 +8,16 @@ export const whatsNew = {
     help: "Découvrez ce qui a changé dans la dernière version de TaskTrooper.",
     open: "Afficher les nouveautés",
   },
+  v0_3_18: {
+    title: "Parlez à vos agents, joignez et mentionnez partout, des plans de tâches plus légers",
+    items: {
+      voiceChat: "Parlez aux agents à voix haute en turc ou en anglais : la réponse est lue au fil de l'écriture, les dessins s'affichent à l'écran et vous pouvez interrompre en parlant. Choisissez le modèle et la voix dans Réglages → Voix.",
+      attachAndMention: "Collez ou joignez des fichiers et des images, et mentionnez agents, projets et dépôts avec @, sur l'accueil, dans la question rapide en haut et dans les commentaires de tâche.",
+      notifications: "Le centre de notifications affiche l'expéditeur de chaque notification avec son avatar, dans votre langue, et le badge de la barre latérale compte ce qui est vraiment non lu.",
+      onePerFeature: "Le PM ouvre une tâche par fonctionnalité, dépôt et rôle au lieu de plusieurs petites, pour que chaque fonctionnalité soit développée, revue et publiée une seule fois.",
+      releaseBatch: "Le release engineer peut proposer une publication groupée à votre approbation et demande pas à pas comment un composant se déploie.",
+    },
+  },
   v0_3_17: {
     title: "Aperçus hébergés d'abord, captures que les agents voient, fini le ping-pong QA",
     items: {

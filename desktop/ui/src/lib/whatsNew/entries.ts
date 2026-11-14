@@ -24,6 +24,10 @@ export type WhatsNewRecord = WhatsNewEntry | WhatsNewSkip;
 
 export const WHATS_NEW: readonly WhatsNewRecord[] = [
   {
+    version: "0.3.18",
+    items: ["voiceChat", "attachAndMention", "notifications", "onePerFeature", "releaseBatch"],
+  },
+  {
     version: "0.3.17",
     items: ["hostedPreview", "chatImages", "qaBlocked"],
   },

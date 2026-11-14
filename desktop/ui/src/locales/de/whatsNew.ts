@@ -8,6 +8,16 @@ export const whatsNew = {
     help: "Sieh nach, was sich in der neuesten Version von TaskTrooper geändert hat.",
     open: "Neuigkeiten anzeigen",
   },
+  v0_3_18: {
+    title: "Mit Agenten sprechen, überall anhängen und markieren, schlankere Aufgabenpläne",
+    items: {
+      voiceChat: "Sprich laut mit Agenten auf Türkisch oder Englisch: Die Antwort wird vorgelesen, während sie entsteht, Zeichnungen erscheinen auf dem Bildschirm, und du kannst durch Sprechen unterbrechen. Sprachmodell und Stimme wählst du unter Einstellungen → Sprache.",
+      attachAndMention: "Füge auf der Startseite, in der Schnellfrage oben und in Aufgabenkommentaren Dateien und Bilder ein und markiere Agenten, Projekte und Repositories mit @.",
+      notifications: "Die Benachrichtigungszentrale zeigt den Absender jeder Benachrichtigung mit Avatar und in deiner Sprache; das Abzeichen in der Seitenleiste zählt, was wirklich ungelesen ist.",
+      onePerFeature: "Der PM eröffnet pro Funktion, Repository und Rolle eine Aufgabe statt vieler kleiner, sodass jede Funktion einmal gebaut, geprüft und veröffentlicht wird.",
+      releaseBatch: "Der Release Engineer kann ein Sammel-Release zur Freigabe vorschlagen und fragt Schritt für Schritt, wie eine Komponente bereitgestellt wird.",
+    },
+  },
   v0_3_17: {
     title: "Gehostete Vorschauen zuerst, Screenshots, die Agenten sehen, kein QA-Pingpong mehr",
     items: {
