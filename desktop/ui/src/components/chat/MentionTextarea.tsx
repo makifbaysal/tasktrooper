@@ -31,8 +31,10 @@ type NativeProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "
 interface MentionTextareaProps extends NativeProps {
   value: string;
   onChange: (value: string) => void;
-  /** Enter without Shift, when the @-menu is not taking the key. */
-  onSubmit: () => void;
+  /** Enter without Shift, when the @-menu is not taking the key. Required only while submitOnEnter is true. */
+  onSubmit?: () => void;
+  /** False = Enter inserts a newline like a plain textarea; only the @-menu takes the key. Default true. */
+  submitOnEnter?: boolean;
   mentionOptions?: MentionOption[];
   // Fired when the user picks an entity from the autocomplete, so the parent
   // can send the exact kind+id reference alongside the message text.
@@ -42,7 +44,7 @@ interface MentionTextareaProps extends NativeProps {
 }
 
 export const MentionTextarea = forwardRef<HTMLTextAreaElement, MentionTextareaProps>(function MentionTextarea(
-  { value, onChange, onSubmit, mentionOptions = [], onMentionSelect, wrapperClassName, ...textareaProps },
+  { value, onChange, onSubmit, submitOnEnter = true, mentionOptions = [], onMentionSelect, wrapperClassName, ...textareaProps },
   ref,
 ) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -116,9 +118,9 @@ export const MentionTextarea = forwardRef<HTMLTextAreaElement, MentionTextareaPr
               return;
             }
           }
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (submitOnEnter && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            onSubmit();
+            onSubmit?.();
           }
         }}
         onClick={(e) => syncMention(value, e.currentTarget.selectionStart ?? value.length)}
