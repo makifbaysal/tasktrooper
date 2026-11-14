@@ -47,6 +47,12 @@ export const frame: FrameDict = {
         markAllRead: "Tümünü okundu işaretle",
         unreadBadge: "{count} okunmamış",
         unreadBadgeOverflow: "9+",
+        items: {
+          review: "{task} incelemenizi bekliyor",
+          uat: "{task} kullanıcı kabul testinizi (UAT) bekliyor",
+          decision: "{task} kararınızı bekliyor",
+          question: "{task} için bir agent'ın sorusu var",
+        },
       },
       toolchain: {
         title: "Bilgisayar kurulumu",
@@ -100,7 +106,7 @@ export const frame: FrameDict = {
       home: "Ana Sayfa",
       team: "Ekip",
       newAgent: "Yeni ajan",
-      unreadAgent: "Yeni mesaj",
+      unreadAgentCount: "{count} okunmamış mesaj",
       management: "Yönetim",
       teamMemory: "Takım Hafızası",
       settings: "Ayarlar",

@@ -295,10 +295,11 @@ export interface WorkflowBehavioursResponse {
 
 export interface ActivityItem {
   id: string;
-  kind: "board_event" | "agent_run";
+  kind: "board_event" | "agent_run" | "chat_message";
   project_id?: string;
   task_id?: string;
   agent_id?: string;
+  session_id?: string;
   status?: string;
   summary?: string;
   event_type?: string;

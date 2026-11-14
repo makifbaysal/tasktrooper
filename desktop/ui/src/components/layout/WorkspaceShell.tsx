@@ -35,7 +35,7 @@ export function WorkspaceShell({
   const location = useLocation();
   const activeAgentMatch = /^\/agents\/([^/]+)\/chat/.exec(location.pathname);
   const activeAgentId = activeAgentMatch ? activeAgentMatch[1] : null;
-  const { unread: unreadAgentIds, markAgentSeen } = useAgentUnread(agents, activeAgentId);
+  const { counts: unreadCounts, markAgentSeen } = useAgentUnread(agents, activeAgentId);
   const { progress: catalogSync } = useCatalogSync(onRefresh);
 
   return (
@@ -45,6 +45,7 @@ export function WorkspaceShell({
         sidebarCollapsed={collapsed}
         onAgentSeen={markAgentSeen}
         leadAgent={leadAgent}
+        agents={agents}
         catalogSync={catalogSync}
       />
       <TemporaryLocalBanner />
@@ -59,7 +60,7 @@ export function WorkspaceShell({
           mobileOpen={mobileOpen}
           onMobileClose={() => setMobileOpen(false)}
           onRefresh={onRefresh}
-          unreadAgentIds={unreadAgentIds}
+          unreadCounts={unreadCounts}
         />
         {/* `relative` makes main the containing block for absolutely positioned
             descendants (sr-only text, Radix hidden inputs). Without it they

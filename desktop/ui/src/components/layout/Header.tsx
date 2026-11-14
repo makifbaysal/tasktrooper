@@ -19,6 +19,8 @@ interface HeaderProps {
   /** Advances an agent's sidebar "last viewed" from a notification-center click. Optional so a Header shown outside WorkspaceShell (none today) still renders without a bell. */
   onAgentSeen?: (agentId: string, iso: string) => void;
   leadAgent?: Agent | null;
+  /** The team, so the notification center can show a chat message's sender avatar/name. */
+  agents?: Agent[];
   /** The catalog sync in flight, if any; shown while it adds agents or indexes skills. */
   catalogSync?: CatalogSyncProgress | null;
 }
@@ -35,6 +37,7 @@ export function Header({
   sidebarCollapsed = false,
   onAgentSeen,
   leadAgent = null,
+  agents = [],
   catalogSync = null,
 }: HeaderProps) {
   const { t } = useI18n();
@@ -69,7 +72,7 @@ export function Header({
       <div className="flex items-center gap-2">
         <CatalogSyncIndicator progress={catalogSync} />
         <ToolchainIndicator />
-        {onAgentSeen && <NotificationCenter onAgentSeen={onAgentSeen} />}
+        {onAgentSeen && <NotificationCenter onAgentSeen={onAgentSeen} agents={agents} />}
         <HealthStatus />
         <FeedbackButton />
 

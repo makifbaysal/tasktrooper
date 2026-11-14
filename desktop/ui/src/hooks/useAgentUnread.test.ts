@@ -2,8 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "@/api";
 
-const { listSessions, listActivity } = vi.hoisted(() => ({
-  listSessions: vi.fn(),
+const { listActivity } = vi.hoisted(() => ({
   listActivity: vi.fn(),
 }));
 
@@ -13,7 +12,6 @@ vi.mock("@/api", async () => {
     ...actual,
     api: {
       ...actual.api,
-      listSessions,
       listActivity,
     },
   };
@@ -54,9 +52,20 @@ const agents: Agent[] = [
   },
 ];
 
+function chatMessage(agentId: string, createdAt: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `evt-${agentId}-${createdAt}`,
+    kind: "chat_message",
+    agent_id: agentId,
+    session_id: `session-${agentId}`,
+    summary: "hi",
+    created_at: createdAt,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   window.localStorage.clear();
-  listSessions.mockResolvedValue({ sessions: [] });
   listActivity.mockResolvedValue({ items: [] });
 });
 
@@ -65,15 +74,13 @@ afterEach(() => {
 });
 
 describe("useAgentUnread", () => {
-  it("still reports an agent unread from a session update (regression)", async () => {
-    listSessions.mockResolvedValue({
-      sessions: [{ id: "s1", agent_id: "agent-1", title: "t", model: "m", created_at: "", updated_at: "2026-09-18T10:00:00Z" }],
-    });
+  it("counts a chat_message newer than the last-viewed time as unread", async () => {
+    listActivity.mockResolvedValue({ items: [chatMessage("agent-1", "2026-09-18T10:00:00Z")] });
     const { result } = renderHook(() => useAgentUnread(agents, null));
-    await waitFor(() => expect(result.current.unread.has("agent-1")).toBe(true));
+    await waitFor(() => expect(result.current.counts["agent-1"]).toBe(1));
   });
 
-  it("does not report an agent unread from a task comment alone (DM-only)", async () => {
+  it("does not count an agent unread from a task comment alone (chat-only)", async () => {
     listActivity.mockResolvedValue({
       items: [
         {
@@ -87,32 +94,39 @@ describe("useAgentUnread", () => {
       ],
     });
     const { result } = renderHook(() => useAgentUnread(agents, null));
-    await waitFor(() => expect(listSessions).toHaveBeenCalled());
-    expect(result.current.unread.has("agent-2")).toBe(false);
+    await waitFor(() => expect(listActivity).toHaveBeenCalled());
+    expect(result.current.counts["agent-2"]).toBeUndefined();
   });
 
-  it("clears an agent via markAgentSeen and persists it to localStorage", async () => {
-    listSessions.mockResolvedValue({
-      sessions: [{ id: "s1", agent_id: "agent-2", title: "t", model: "m", created_at: "", updated_at: "2026-09-18T10:00:00Z" }],
+  it("sums multiple unread chat messages from the same agent into one count", async () => {
+    listActivity.mockResolvedValue({
+      items: [
+        chatMessage("agent-2", "2026-09-18T10:00:00Z"),
+        chatMessage("agent-2", "2026-09-18T10:05:00Z"),
+      ],
     });
     const { result } = renderHook(() => useAgentUnread(agents, null));
-    await waitFor(() => expect(result.current.unread.has("agent-2")).toBe(true));
+    await waitFor(() => expect(result.current.counts["agent-2"]).toBe(2));
+  });
+
+  it("clears an agent's count via markAgentSeen and persists it to localStorage", async () => {
+    listActivity.mockResolvedValue({ items: [chatMessage("agent-2", "2026-09-18T10:00:00Z")] });
+    const { result } = renderHook(() => useAgentUnread(agents, null));
+    await waitFor(() => expect(result.current.counts["agent-2"]).toBe(1));
 
     act(() => {
       result.current.markAgentSeen("agent-2", "2026-09-18T10:00:00Z");
     });
 
-    await waitFor(() => expect(result.current.unread.has("agent-2")).toBe(false));
+    await waitFor(() => expect(result.current.counts["agent-2"]).toBeUndefined());
     const stored = JSON.parse(window.localStorage.getItem("tt.agentChat.lastViewedAt") ?? "{}");
     expect(stored["agent-2"]).toBe("2026-09-18T10:00:00Z");
   });
 
-  it("still excludes the active agent's chat (regression)", async () => {
-    listSessions.mockResolvedValue({
-      sessions: [{ id: "s1", agent_id: "agent-1", title: "t", model: "m", created_at: "", updated_at: "2026-09-18T10:00:00Z" }],
-    });
+  it("excludes the active agent's own chat from the count and marks it seen", async () => {
+    listActivity.mockResolvedValue({ items: [chatMessage("agent-1", "2026-09-18T10:00:00Z")] });
     const { result } = renderHook(() => useAgentUnread(agents, "agent-1"));
-    await waitFor(() => expect(listSessions).toHaveBeenCalled());
-    expect(result.current.unread.has("agent-1")).toBe(false);
+    await waitFor(() => expect(listActivity).toHaveBeenCalled());
+    expect(result.current.counts["agent-1"]).toBeUndefined();
   });
 });
