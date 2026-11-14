@@ -46,6 +46,13 @@ type TaskExecution struct {
 	// "carry on" prompt a quota-parked run is woken with. Ignored when
 	// ResumeSessionID is empty.
 	Prompt string
+	// CompactBeforeResume asks the executor to compact a large resumed session
+	// before it continues (a revision round: the session holds every earlier
+	// round's screenshots and command output, re-read on every turn). The
+	// executor decides from the session's own size whether it is worth it, and
+	// resumes the session as it is when compaction cannot run. Ignored when
+	// ResumeSessionID is empty.
+	CompactBeforeResume bool
 	// TaskKey is the human-readable key (tt-123 style) used in logs and in the
 	// short continue prompt a resumed session is given.
 	TaskKey string

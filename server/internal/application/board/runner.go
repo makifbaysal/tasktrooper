@@ -1081,9 +1081,13 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 			Env:             sessionEnv,
 			ResumeSessionID: resumeCLISession,
 			Prompt:          resumePrompt,
-			TaskKey:         job.Task.Key,
-			TaskTitle:       job.Task.Title,
-			SkillsOnDisk:    skillDelivery == prompt.SkillsOnDisk,
+			// A revision resumes the session of every earlier round; above a
+			// size the executor compacts it first instead of re-reading it all
+			// on every turn of a small fix.
+			CompactBeforeResume: resumeCLISession != "" && job.isRevision(),
+			TaskKey:             job.Task.Key,
+			TaskTitle:           job.Task.Title,
+			SkillsOnDisk:        skillDelivery == prompt.SkillsOnDisk,
 		})
 		if resp.Clarification == nil {
 			resp.Clarification = questions.Request()
