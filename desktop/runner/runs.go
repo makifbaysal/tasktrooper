@@ -293,7 +293,7 @@ func (run *durableRun) notifyLocked() {
 func withSeq(line []byte, seq int64) []byte {
 	field := `"seq":` + strconv.FormatInt(seq, 10)
 	trimmed := bytes.TrimRight(line, " \t")
-	out := make([]byte, 0, len(trimmed)+len(field)+3)
+	var out []byte
 	if n := len(trimmed); n >= 2 && trimmed[0] == '{' && trimmed[n-1] == '}' {
 		body := bytes.TrimRight(trimmed[:n-1], " \t\r\n")
 		out = append(out, body...)
