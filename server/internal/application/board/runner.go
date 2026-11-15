@@ -927,6 +927,10 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	criteriaItems := r.criteriaForRun(runCtx, job, wf)
 	changedSinceVerdict := r.changedSinceByVerifiedSHA(runCtx, workDir, criteriaItems)
 	triggerMsg := buildTriggerMessage(job, wf, criteriaItems, changedSinceVerdict)
+	automation := qaAutomationOn(wf, job.Task.Column, repoRec)
+	if automation {
+		triggerMsg += "\n\n" + prompt.Text(qaAutomationOnKey)
+	}
 
 	var prMsg string
 	if wf.Has(job.Task.Column, domain.BehaviourRequirePRForReview) && taskWorkspace != "" && r.git != nil {
@@ -981,6 +985,9 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 	policy := domain.MergeToolPolicy(r.defaultPolicy, agentRec.ToolPolicy)
 	stage, _ := wf.Stage(job.Task.Column)
 	upliftedPolicy := domain.RestrictToolsForStage(domain.UpliftWorkspaceTools(policy), stage, wf.Type)
+	if automation {
+		upliftedPolicy = domain.KeepWorkspaceWriters(upliftedPolicy, domain.UpliftWorkspaceTools(policy))
+	}
 
 	history := []domain.Message{{Role: domain.RoleSystem, Content: systemPrompt}}
 	history = append(history, domain.Message{Role: domain.RoleSystem, Content: prompt.SubtaskWorkspaceNote(workDir)})
@@ -1185,6 +1192,20 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 		}
 	}
 
+	var automationOut automationOutcome
+	if automation && resp.Clarification == nil && resp.ResourceBlock == nil && criteriaSettled && !reviewStuck {
+		var quotaBlock *domain.QuotaBlock
+		automationOut, quotaBlock = r.runAutomationRound(runCtx, job, agentRec, history, resp, model, upliftedPolicy, wf, taskWorkspace)
+		if quotaBlock != nil {
+			stampToolStats(&run, toolUsage)
+			stampTokenUsage(&run, tokenUsage)
+			return r.quotaOrPark(ctx, job, run, agentRec, prevRuns, cliSession, quotaBlock, fail)
+		}
+	}
+	if automation {
+		r.scopeToAutomation(ctx, job, taskWorkspace)
+	}
+
 	if !criteriaSettled {
 		run.Status = domain.TaskAgentRunStatusFailed
 		run.Summary = unsettledCriteriaSummary(len(r.openCriteria(runCtx, job)))
@@ -1245,6 +1266,7 @@ func (r *Runner) execute(parent, ctx context.Context, cancel context.CancelFunc,
 				Msg("hand-off: verification failed, task stays in the working column")
 		}
 	}
+	r.applyAutomationOutcome(ctx, job, wf, automationOut)
 	stampCLISession(&run, cliSession.ID(), agentRec.ProviderType)
 	pctx, cancelPersist := persistCtx(ctx)
 	defer cancelPersist()

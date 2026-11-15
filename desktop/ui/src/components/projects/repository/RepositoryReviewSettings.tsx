@@ -52,6 +52,22 @@ export function RepositoryReviewSettings({ model, repositoryId, onReload }: Repo
     }
   };
 
+  const handleAutomationChange = async (checked: boolean) => {
+    try {
+      const updated = await api.updateRepository(repositoryId, {
+        name: repository.name,
+        description: repository.description,
+        automation_tests: checked,
+      });
+      if (checked && !repository.automation_tests && updated.automation_task_id) {
+        toast.success(t("repositoryPage.components.automationTaskOpened"));
+      }
+      onReload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("common.saveFailed"));
+    }
+  };
+
   const handleCreateSetupTask = async () => {
     setCreatingSetupTask(true);
     try {
@@ -78,6 +94,13 @@ export function RepositoryReviewSettings({ model, repositoryId, onReload }: Repo
             <HelpTooltip text={t("repositoryPage.components.requireHumanReviewHelp")} />
           </div>
           <Switch checked={repository.require_human_review ?? false} onCheckedChange={handleReviewChange} />
+        </div>
+        <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+          <div className="flex items-center gap-1.5">
+            <Label>{t("repositoryPage.components.automationTests")}</Label>
+            <HelpTooltip text={t("repositoryPage.components.automationTestsHelp")} />
+          </div>
+          <Switch checked={repository.automation_tests ?? false} onCheckedChange={handleAutomationChange} />
         </div>
       </Card>
 

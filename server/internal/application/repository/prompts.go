@@ -144,3 +144,13 @@ func renderOrderNote(deployAfter, workAfter []string) string {
 	}
 	return domain.OrderNoteOpen + "\n" + orderNoteKey.Render(orderNoteInput{DeployAfter: deployAfter, WorkAfter: workAfter}) + domain.OrderNoteClose
 }
+
+var automationBackfillTitleKey = prompt.Define("repository.automation_backfill_title", struct{}{})
+
+type automationBackfillBriefInput struct{ Kind string }
+
+var automationBackfillBriefKey = prompt.Define("repository.automation_backfill_brief", automationBackfillBriefInput{Kind: "backend"})
+
+var automationBackfillCriteriaKey = prompt.Define("repository.automation_backfill_criteria", struct{}{})
+
+var automationMoveHeldKey = prompt.Define("guard.automation_move_held", testCasesMissingInput{Target: "human_uat"})

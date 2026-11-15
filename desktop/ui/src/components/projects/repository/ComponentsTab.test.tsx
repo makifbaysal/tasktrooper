@@ -170,6 +170,21 @@ describe("ComponentsTab", () => {
     );
   });
 
+  it("toggling automation tests calls updateRepository with automation_tests", async () => {
+    renderTab("comp-api");
+    await waitFor(() => expect(screen.getByText("Automation tests")).toBeInTheDocument());
+
+    fireEvent.click(screen.getAllByRole("switch")[1]);
+
+    await waitFor(() =>
+      expect(updateRepository).toHaveBeenCalledWith("repo-1", {
+        name: model.repository.name,
+        description: model.repository.description,
+        automation_tests: true,
+      }),
+    );
+  });
+
   it("shows the no-CI-workflows notice when no check has source ci", async () => {
     renderTab("comp-api");
     await waitFor(() => expect(screen.getByText("No CI workflows")).toBeInTheDocument());
@@ -214,8 +229,8 @@ describe("ComponentsTab", () => {
     await screen.findByText("Quality gates");
     expect(screen.getByText(/opens a task to add the CI step/)).toBeInTheDocument();
 
-    // [0] is the review card's switch; the gates card's coverage switch follows it.
-    fireEvent.click(screen.getAllByRole("switch")[1]);
+    // [0] and [1] are the review card's human-review and automation switches; the gates card's coverage switch follows them.
+    fireEvent.click(screen.getAllByRole("switch")[2]);
 
     await waitFor(() => expect(updateComponent).toHaveBeenCalledWith("comp-api", { gates: { coverage_enabled: true } }));
     await waitFor(() =>
@@ -234,7 +249,7 @@ describe("ComponentsTab", () => {
     renderTab("comp-api");
     await screen.findByText("Quality gates");
 
-    fireEvent.click(screen.getAllByRole("switch")[2]);
+    fireEvent.click(screen.getAllByRole("switch")[3]);
 
     await waitFor(() =>
       expect(toastInfo).toHaveBeenCalledWith("The task adding mutation testing to CI is still open.", {

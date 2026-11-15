@@ -83,6 +83,13 @@ type Repository struct {
 	// CISetupTaskID is the board task the "no CI workflows" notice opened; it
 	// blocks a second one until it is deleted or reaches done/released.
 	CISetupTaskID string      `json:"ci_setup_task_id,omitempty"`
+	// AutomationTests has QA keep a qa-automation/ project in this repository:
+	// each passing QA round adds the task's cases to it, and the suite must be
+	// green before the task leaves QA.
+	AutomationTests bool `json:"automation_tests"`
+	// AutomationTaskID is the backfill task switching AutomationTests on
+	// opened; one still open stops a second.
+	AutomationTaskID string `json:"automation_task_id,omitempty"`
 	ProjectIDs    []uuid.UUID `json:"project_ids,omitempty"`
 	// GitWarning is the finished sentence the repository card shows above its
 	// root path. Rendered verbatim by the web app — server-composed English,
@@ -608,6 +615,7 @@ type UpdateRepositoryRequest struct {
 	RequireHumanReview *bool             `json:"require_human_review,omitempty"`
 	IncidentPolicy     *IncidentPolicy   `json:"incident_policy,omitempty"`
 	TestStrategy       *string           `json:"test_strategy,omitempty"`
+	AutomationTests    *bool             `json:"automation_tests,omitempty"`
 	// Docs replaces the repository's own reference-doc pointers wholesale when
 	// set; nil leaves them untouched.
 	Docs *RepositoryDocs `json:"docs,omitempty"`

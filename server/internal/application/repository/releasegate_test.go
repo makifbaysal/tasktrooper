@@ -455,3 +455,9 @@ func (f *fakeReleaseTaskStore) ReleaseAnalysisQuestionsBlock(context.Context, uu
 func (f *fakeReleaseGit) RevertCommitOnDefaultBranch(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
+
+func (f *fakeReleaseRepoStore) UpdateAutomationTests(_ context.Context, _ uuid.UUID, enabled bool) (domain.Repository, error) {
+	return domain.Repository{AutomationTests: enabled}, nil
+}
+
+func (f *fakeReleaseRepoStore) SetAutomationTaskID(context.Context, uuid.UUID, string) error { return nil }

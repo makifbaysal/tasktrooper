@@ -865,3 +865,9 @@ func (f *fakeActionsClient) CommitDeployStatus(_ context.Context, _, _, _ string
 }
 
 type listRunsForCommitCall struct{ owner, repo, sha string }
+
+func (f *fakeRepositoryStore) UpdateAutomationTests(_ context.Context, _ uuid.UUID, enabled bool) (domain.Repository, error) {
+	return domain.Repository{AutomationTests: enabled}, nil
+}
+
+func (f *fakeRepositoryStore) SetAutomationTaskID(context.Context, uuid.UUID, string) error { return nil }

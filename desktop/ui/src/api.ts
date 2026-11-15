@@ -591,6 +591,8 @@ export interface Repository {
   sub_repo_kinds?: string[];
   sub_projects?: RepoSubProject[];
   require_human_review?: boolean;
+  automation_tests?: boolean;
+  automation_task_id?: string;
   incident_policy?: IncidentPolicy;
   test_strategy?: TestStrategy;
   docs?: RepositoryDocs;
@@ -7135,6 +7137,7 @@ export const api = {
       build_command?: string;
       test_command?: string;
       require_human_review?: boolean;
+      automation_tests?: boolean;
       docs?: RepositoryDocs;
       release_engine?: ReleaseEngine;
     },

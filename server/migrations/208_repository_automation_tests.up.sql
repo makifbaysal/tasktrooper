@@ -1,0 +1,3 @@
+ALTER TABLE repositories
+    ADD COLUMN IF NOT EXISTS automation_tests BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS automation_task_id TEXT NOT NULL DEFAULT '';

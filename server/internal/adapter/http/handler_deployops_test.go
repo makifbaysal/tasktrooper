@@ -644,3 +644,9 @@ func (f *fakeActions) JobLogs(context.Context, string, string, int64) (string, e
 func (f *fakeActions) CommitDeployStatus(context.Context, string, string, string) (port.CommitDeploySignal, error) {
 	return port.CommitDeploySignal{}, nil
 }
+
+func (f *fakeDeployOpsRepositoryStore) UpdateAutomationTests(_ context.Context, _ uuid.UUID, enabled bool) (domain.Repository, error) {
+	return domain.Repository{AutomationTests: enabled}, nil
+}
+
+func (f *fakeDeployOpsRepositoryStore) SetAutomationTaskID(context.Context, uuid.UUID, string) error { return nil }
