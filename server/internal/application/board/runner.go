@@ -2347,6 +2347,9 @@ func closingStep(wf domain.Workflow, job RunJob) string {
 	if wf.Has(job.Task.Column, domain.BehaviourBuildVerify) {
 		return prompt.Text(closingStepBuildVerifyKey)
 	}
+	if wf.Has(job.Task.Column, domain.BehaviourCriterionVerdict) {
+		return prompt.Text(closingStepReviewKey)
+	}
 	switch wf.KindOf(job.Task.Column) {
 	case domain.StageKindReview:
 		// code_review, in_qa: the run judges or tests, never edits —

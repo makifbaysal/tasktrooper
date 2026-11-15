@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"github.com/makifbaysal/tasktrooper/server/internal/application/activity"
@@ -62,6 +63,44 @@ func (r *Runner) missingVerdicts(ctx context.Context, job RunJob, role domain.Cr
 	return missing
 }
 
+type taskTestCaseReader interface {
+	ListTestCases(ctx context.Context, taskID uuid.UUID) ([]domain.TaskTestCase, error)
+}
+
+// caseGap is what a QA stage's test-case gate would refuse a move for: no
+// cases on the task at all, or cases written down and never run.
+type caseGap struct {
+	None    bool
+	Planned []domain.TaskTestCase
+}
+
+func (g caseGap) open() bool { return g.None || len(g.Planned) > 0 }
+
+func (r *Runner) unsettledTestCases(ctx context.Context, job RunJob, wf domain.Workflow) caseGap {
+	if !wf.Has(job.Task.Column, domain.BehaviourRequireTestCases) {
+		return caseGap{}
+	}
+	reader, ok := r.taskUpdater.(taskTestCaseReader)
+	if !ok {
+		return caseGap{}
+	}
+	items, err := reader.ListTestCases(ctx, job.Task.ID)
+	if err != nil {
+		log.Warn().Err(err).Str("task_id", job.Task.ID.String()).Msg("review sweep: test cases unreadable")
+		return caseGap{}
+	}
+	if len(items) == 0 {
+		return caseGap{None: true}
+	}
+	var gap caseGap
+	for _, c := range items {
+		if c.Status == domain.TestCaseStatusPlanned {
+			gap.Planned = append(gap.Planned, c)
+		}
+	}
+	return gap
+}
+
 // stuckColumnComment tells a person the review ran but never moved the
 // card, so nudging it forward (or back to need_revision) needs a human hand.
 func stuckColumnComment(column, exit domain.TaskColumn, note string) string {
@@ -95,6 +134,9 @@ func (r *Runner) finalizeReviewVerdict(
 	exit domain.TaskColumn,
 ) (bool, *domain.QuotaBlock) {
 	if r.taskUpdater == nil {
+		return false, nil
+	}
+	if r.unsettledTestCases(ctx, job, r.workflowFor(ctx, job.Task.TaskType)).open() {
 		return false, nil
 	}
 	if role, ok := criterionReviewRole(r.workflowFor(ctx, job.Task.TaskType), job.Task.Column); ok {
@@ -162,10 +204,26 @@ func (r *Runner) finalizeReviewVerdict(
 // column back toward recording the move it already decided on. missing is
 // nil whenever the stage has no criterion-verdict gate or nothing is left
 // unruled — role is only read when missing is non-empty.
-func reviewVerdictSweepPrompt(column, exit domain.TaskColumn, role domain.CriterionReviewRole, missing []domain.AcceptanceCriterion) string {
+func reviewVerdictSweepPrompt(column, exit domain.TaskColumn, role domain.CriterionReviewRole, missing []domain.AcceptanceCriterion, cases caseGap) string {
 	var sb strings.Builder
 	sb.WriteString(reviewVerdictSweepIntroKey.Render(reviewVerdictSweepIntroData{Column: string(column)}))
 	sb.WriteString("\n")
+
+	switch {
+	case cases.None:
+		sb.WriteString("\n")
+		sb.WriteString(prompt.Text(reviewVerdictSweepCasesNoneKey))
+		sb.WriteString("\n")
+	case len(cases.Planned) > 0:
+		sb.WriteString("\n")
+		sb.WriteString(reviewVerdictSweepCasesPlannedKey.Render(reviewVerdictSweepCasesPlannedData{Count: len(cases.Planned)}))
+		sb.WriteString("\n")
+		for _, c := range cases.Planned {
+			sb.WriteString(fmt.Sprintf("- [%s] %s\n", c.ID, c.Title))
+		}
+		sb.WriteString(prompt.Text(reviewVerdictSweepCasesFooterKey))
+		sb.WriteString("\n")
+	}
 
 	if len(missing) > 0 {
 		sb.WriteString("\n")
@@ -290,7 +348,7 @@ func (r *Runner) sweepReviewVerdict(
 		role = reviewRole
 		missing = r.missingVerdicts(ctx, job, reviewRole)
 	}
-	prompt := reviewVerdictSweepPrompt(job.Task.Column, exit, role, missing)
+	prompt := reviewVerdictSweepPrompt(job.Task.Column, exit, role, missing, r.unsettledTestCases(ctx, job, wf))
 
 	rec := activity.FromContext(ctx)
 	if rec != nil {

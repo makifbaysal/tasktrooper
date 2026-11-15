@@ -212,7 +212,10 @@ func mergeTestCase(existing domain.TaskTestCase, in domain.TaskTestCaseInput) do
 	return out
 }
 
-func (s *Service) testCaseGate(ctx context.Context, taskID uuid.UUID, taskType domain.TaskType, prev, target domain.TaskColumn) error {
+// An agent's need_revision exit is gated too: a QA round that bounces the task
+// without having run its cases sends the developer nothing to fix. A human
+// dragging the card back is never held.
+func (s *Service) testCaseGate(ctx context.Context, taskID uuid.UUID, taskType domain.TaskType, prev, target domain.TaskColumn, actor domain.TaskActor) error {
 	if !s.requireCriteria || s.testCases == nil {
 		return nil
 	}
@@ -223,7 +226,8 @@ func (s *Service) testCaseGate(ctx context.Context, taskID uuid.UUID, taskType d
 	if !wf.Has(prev, domain.BehaviourRequireTestCases) {
 		return nil
 	}
-	if !wf.Has(target, domain.BehaviourForwardExit) {
+	revision := target == domain.TaskColumnNeedRevision && actor == domain.TaskActorAgent
+	if !revision && !wf.Has(target, domain.BehaviourForwardExit) {
 		return nil
 	}
 	items, err := s.testCases.ListByTask(ctx, taskID)
@@ -234,13 +238,40 @@ func (s *Service) testCaseGate(ctx context.Context, taskID uuid.UUID, taskType d
 		return domain.RefuseMove(fmt.Errorf("%s", testCasesMissingKey.Render(testCasesMissingInput{Target: string(target)})))
 	}
 	var planned []string
+	failed := false
 	for _, c := range items {
-		if c.Status == domain.TestCaseStatusPlanned {
+		switch c.Status {
+		case domain.TestCaseStatusPlanned:
 			planned = append(planned, c.Title)
+		case domain.TestCaseStatusFailed:
+			failed = true
 		}
 	}
 	if len(planned) > 0 {
 		return domain.RefuseMove(fmt.Errorf("%s", testCasesPlannedKey.Render(testCasesPlannedInput{Target: string(target), Count: len(planned), Planned: planned})))
 	}
+	if revision && !failed && !s.hasRejectedCriterion(ctx, wf, prev, taskID) {
+		return domain.RefuseMove(fmt.Errorf("%s", testCasesNoFailureKey.Render(testCasesMissingInput{Target: string(target)})))
+	}
 	return nil
+}
+
+func (s *Service) hasRejectedCriterion(ctx context.Context, wf domain.Workflow, stage domain.TaskColumn, taskID uuid.UUID) bool {
+	channel, ok := wf.Param(stage, domain.BehaviourCriterionVerdict, "channel")
+	if !ok || s.criteria == nil {
+		return false
+	}
+	items, err := s.criteria.ListByTask(ctx, taskID)
+	if err != nil {
+		return true
+	}
+	for _, c := range items {
+		if c.Canceled {
+			continue
+		}
+		if v := criterionCheckFor(c, domain.CriterionReviewRole(channel)); v != nil && !v.Approved {
+			return true
+		}
+	}
+	return false
 }

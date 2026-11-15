@@ -1875,7 +1875,7 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 			return domain.BoardTask{}, err
 		}
 
-		if err := s.testCaseGate(ctx, task.ID, task.TaskType, prevColumn, *req.Column); err != nil {
+		if err := s.testCaseGate(ctx, task.ID, task.TaskType, prevColumn, *req.Column, req.Actor); err != nil {
 			return domain.BoardTask{}, err
 		}
 
