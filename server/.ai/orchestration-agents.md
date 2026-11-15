@@ -81,6 +81,9 @@ empty models, because `CreateAgent` refuses that provider there.
 
 ### QA test flow (parked skill set)
 
+**Per repository, automation tests can be switched on** (`repositories.automation_tests`, migration 208; Components tab → Review card). Off→on opens one backfill task assigned to the qa role (`repository.CreateAutomationBackfillTask`, deduped by `automation_task_id`) that builds `qa-automation/` and covers what already ships. While on, a QA stage keeps its workspace writers (`domain.KeepWorkspaceWriters`) and gets `board.qa_automation_on` in its trigger message. QA's own forward move is refused (`automationGate`). When the run ends with every case run, none failed and every criterion approved, `board.runAutomationRound` checks that tests changed under `qa-automation/`, runs `qa-automation/scripts/e2e.sh` (25 min), and gives QA up to 2 fix rounds. Green: the tests are committed and the board moves the task to the pass column. Still red: need_revision with the output. Every change outside `qa-automation/` is undone before commit (`git.ScopeWorkingTree`). The parked skills stay parked: the guidance lives in the catalog prompts.
+
+
 **QA runs manual tests only.** The automation phase is deferred, not deleted:
 four skills (`e2e-automation-project`, `automation-pipeline-integration`,
 `test-doubles-wiremock`, `test-database-seeding`) and two rules

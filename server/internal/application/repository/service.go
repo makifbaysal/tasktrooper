@@ -992,6 +992,13 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req domain.UpdateRep
 		}
 		repo = updated
 	}
+	if req.AutomationTests != nil {
+		updated, err := s.setAutomationTests(ctx, repo, *req.AutomationTests)
+		if err != nil {
+			return domain.Repository{}, err
+		}
+		repo = updated
+	}
 	if req.Docs != nil {
 		updated, err := s.repos.UpdateDocs(ctx, id, *req.Docs)
 		if err != nil {
@@ -1876,6 +1883,9 @@ func (s *Service) UpdateTask(ctx context.Context, repositoryID, taskID uuid.UUID
 		}
 
 		if err := s.testCaseGate(ctx, task.ID, task.TaskType, prevColumn, *req.Column, req.Actor); err != nil {
+			return domain.BoardTask{}, err
+		}
+		if err := s.automationGate(ctx, repo, task.TaskType, prevColumn, *req.Column, req.Actor); err != nil {
 			return domain.BoardTask{}, err
 		}
 

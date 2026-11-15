@@ -83,7 +83,7 @@ func (s *RepositoryStore) localizeRootPath(r *domain.Repository) {
 
 // repositoryCols is the canonical repositories column list shared by every
 // SELECT/RETURNING below so the read order can never drift from scanRepository.
-const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, ci_setup_task_id, require_human_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, created_at, updated_at`
+const repositoryCols = `id, name, description, root_path, remote_url, verify_command, build_command, test_command, kind, mobile_platform, detected_bundle_id, detected_package_name, detected_xcode_scheme, detected_gradle_module, release_engine, sub_repo_kinds, sub_projects, docs, docs_task_id, ci_setup_task_id, require_human_review, incident_policy, test_strategy, coverage_threshold, require_overall_coverage, mutation_enabled, mutation_threshold, webhook_hook_id, automation_tests, automation_task_id, created_at, updated_at`
 
 // scanRepository reads a single repositories row in repositoryCols order and
 // re-anchors its root_path onto this host. Every SELECT/RETURNING in this file
@@ -112,7 +112,7 @@ func scanRepositoryRow(row interface{ Scan(dest ...any) error }) (domain.Reposit
 		&r.SubRepoKinds, &subProjectsJSON, &docsJSON, &r.DocsTaskID, &r.CISetupTaskID,
 		&r.RequireHumanReview, &incidentPolicy,
 		&r.TestStrategy, &r.CoverageThreshold, &r.RequireOverallCoverage, &r.MutationEnabled, &r.MutationThreshold,
-		&webhookHookID, &r.CreatedAt, &r.UpdatedAt,
+		&webhookHookID, &r.AutomationTests, &r.AutomationTaskID, &r.CreatedAt, &r.UpdatedAt,
 	)
 	r.IncidentPolicy = domain.IncidentPolicy(incidentPolicy)
 	r.WebhookInstalled = webhookHookID != 0
@@ -545,6 +545,26 @@ func (s *RepositoryStore) SetDocsTaskID(ctx context.Context, id uuid.UUID, taskI
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("set repository docs task: %w", port.ErrNotFound)
+	}
+	return nil
+}
+
+func (s *RepositoryStore) UpdateAutomationTests(ctx context.Context, id uuid.UUID, enabled bool) (domain.Repository, error) {
+	r, err := s.scanRepository(s.pool.QueryRow(ctx, `
+		UPDATE repositories SET automation_tests = $2, updated_at = now()
+		WHERE id = $1
+		RETURNING `+repositoryCols,
+		id, enabled))
+	if err != nil {
+		return domain.Repository{}, fmt.Errorf("update automation tests: %w", err)
+	}
+	return r, nil
+}
+
+func (s *RepositoryStore) SetAutomationTaskID(ctx context.Context, id uuid.UUID, taskID string) error {
+	if _, err := s.pool.Exec(ctx, `
+		UPDATE repositories SET automation_task_id = $2, updated_at = now() WHERE id = $1`, id, taskID); err != nil {
+		return fmt.Errorf("set automation task: %w", err)
 	}
 	return nil
 }

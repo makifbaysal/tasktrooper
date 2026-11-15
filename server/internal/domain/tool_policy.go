@@ -405,6 +405,21 @@ func RestrictToolsForStage(p ToolPolicy, stage WorkflowStage, typeDef TaskTypeDe
 	return out
 }
 
+// KeepWorkspaceWriters gives a stage-restricted policy back the workspace
+// writers the unrestricted one held: a QA round on a repository with
+// automation tests on writes its tests, and only them — the runner discards
+// every change outside the automation project before committing.
+func KeepWorkspaceWriters(restricted, full ToolPolicy) ToolPolicy {
+	out := restricted
+	out.AllowTools = append([]string(nil), restricted.AllowTools...)
+	for _, name := range full.AllowTools {
+		if isWorkspaceWriteTool(name) && !containsToolName(out.AllowTools, name) {
+			out.AllowTools = append(out.AllowTools, name)
+		}
+	}
+	return out
+}
+
 // dropTools filters a policy's allow list by a predicate.
 func dropTools(p ToolPolicy, drop func(name string) bool) ToolPolicy {
 	kept := make([]string, 0, len(p.AllowTools))

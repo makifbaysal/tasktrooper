@@ -136,6 +136,9 @@ func (r *Runner) finalizeReviewVerdict(
 	if r.taskUpdater == nil {
 		return false, nil
 	}
+	if wf := r.workflowFor(ctx, job.Task.TaskType); r.automationOn(ctx, job, wf) && r.qaRoundPassed(ctx, job, wf) {
+		return true, nil
+	}
 	if r.unsettledTestCases(ctx, job, r.workflowFor(ctx, job.Task.TaskType)).open() {
 		return false, nil
 	}
@@ -339,6 +342,11 @@ func (r *Runner) sweepReviewVerdict(
 		return false, nil
 	}
 	if r.reviewQuorum.HasDecided(ctx, job.Task.ID, job.Task.Column, job.Run.AgentID) {
+		return false, nil
+	}
+	// With automation on, a passed manual round is the automation round's to
+	// move on; QA's own forward move is refused.
+	if r.automationOn(ctx, job, wf) && r.qaRoundPassed(ctx, job, wf) {
 		return false, nil
 	}
 

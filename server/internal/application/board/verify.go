@@ -319,7 +319,10 @@ func runVerification(ctx context.Context, dir string, repo domain.Repository, re
 }
 
 func runVerificationObserved(ctx context.Context, dir string, repo domain.Repository, required []domain.LocalCommand, extraEnv []string, obs *VerifyObserver) (bool, string, []VerifyStageResult) {
-	stages := ResolveVerifyStages(dir, repo, required)
+	return runStagesObserved(ctx, dir, ResolveVerifyStages(dir, repo, required), extraEnv, obs)
+}
+
+func runStagesObserved(ctx context.Context, dir string, stages []Stage, extraEnv []string, obs *VerifyObserver) (bool, string, []VerifyStageResult) {
 	if len(stages) == 0 {
 		return true, "", nil
 	}
