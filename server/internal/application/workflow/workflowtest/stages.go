@@ -94,12 +94,11 @@ var codingExtra = map[domain.TaskColumn][]domain.BehaviourRef{
 		ref(domain.BehaviourReviewChainStage, "label", "code review", "remedy", "move it to code_review so the diff is reviewed"),
 	},
 	domain.TaskColumnReadyForQA: {
-		ref(domain.BehaviourBuildVerify),
 		ref(domain.BehaviourAutoEnter, "to", "in_qa", "assignee_only", "false"),
 		ref(domain.BehaviourRequireExecutionEvidence), ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"),
 	},
 	domain.TaskColumnInQA: {
-		ref(domain.BehaviourBuildVerify), ref(domain.BehaviourRequireExecutionEvidence), ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"),
+		ref(domain.BehaviourRequireExecutionEvidence), ref(domain.BehaviourReviewVerdictSweep, "pass_to", "human_uat"),
 		ref(domain.BehaviourReviewChainStage, "label", "QA", "remedy", "move it to ready_for_qa; QA takes it into in_qa and tests it there"),
 	},
 	domain.TaskColumnNeedRevision: {

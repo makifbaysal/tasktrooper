@@ -38,6 +38,14 @@ type reviewVerdictSweepMissingIntroData struct{ Role string }
 
 var reviewVerdictSweepMissingIntroKey = prompt.Define("board_context.review_verdict_sweep_missing_intro", reviewVerdictSweepMissingIntroData{Role: "qa"})
 
+var reviewVerdictSweepCasesNoneKey = prompt.Define("board_context.review_verdict_sweep_cases_none", struct{}{})
+
+type reviewVerdictSweepCasesPlannedData struct{ Count int }
+
+var reviewVerdictSweepCasesPlannedKey = prompt.Define("board_context.review_verdict_sweep_cases_planned", reviewVerdictSweepCasesPlannedData{Count: 2})
+
+var reviewVerdictSweepCasesFooterKey = prompt.Define("board_context.review_verdict_sweep_cases_footer", struct{}{})
+
 var reviewVerdictSweepMissingFooterKey = prompt.Define("board_context.review_verdict_sweep_missing_footer", struct{}{})
 
 type reviewVerdictSweepClosingData struct{ Exit string }

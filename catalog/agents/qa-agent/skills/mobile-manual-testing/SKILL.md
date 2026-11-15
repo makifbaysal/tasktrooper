@@ -30,9 +30,8 @@ If a `mobile_*` call reports the device is in use: stop. Your task is parked and
 ## 4. Without a device
 
 1. **Build** the app from the task branch — `flutter build apk --debug`, `./gradlew assembleDebug`, or on macOS `xcodebuild -scheme … -sdk iphonesimulator build` when the Xcode CLT preflight found it. A build failure is a `need_revision` finding on its own, with the compiler output quoted.
-2. **Run the repo's own checks**: `flutter analyze`, `./gradlew lint`, `swiftlint`, `flutter test`, `./gradlew testDebugUnitTest` — only what the repo already defines; this is running the developer's suite, not authoring a new one.
-3. **The API side of every flow.** Most mobile criteria are "the app shows X after calling Y": call Y yourself with curl against the task branch's backend or the stage target, and verify the payload the app would render.
-4. **A Flutter-web render where the repo supports it** (`flutter build web` / `flutter run -d web-server`) driven with the browser tools, labelled explicitly **"web-rendered, not native proof"** — useful for layout/copy, never for touch, permissions, or platform look and feel.
+2. **The API side of every flow.** Most mobile criteria are "the app shows X after calling Y": call Y yourself with curl against the task branch's backend or the stage target, and verify the payload the app would render.
+3. **A Flutter-web render where the repo supports it** (`flutter build web` / `flutter run -d web-server`) driven with the browser tools, labelled explicitly **"web-rendered, not native proof"** — useful for layout/copy, never for touch, permissions, or platform look and feel.
 
 ## 5. Reporting
 

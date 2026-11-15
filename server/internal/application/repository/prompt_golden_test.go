@@ -132,7 +132,7 @@ func TestGateMessageGoldenBeforeMove(t *testing.T) {
 					requireCriteria: true,
 					workflows:       workflowtest.Default().Reader(),
 				}
-				err := svc.testCaseGate(context.Background(), uuid.New(), "task", domain.TaskColumnInQA, domain.TaskColumnHumanUAT)
+				err := svc.testCaseGate(context.Background(), uuid.New(), "task", domain.TaskColumnInQA, domain.TaskColumnHumanUAT, domain.TaskActorAgent)
 				if err == nil || err.Error() != tc.want {
 					t.Fatalf("got %v, want %q", err, tc.want)
 				}

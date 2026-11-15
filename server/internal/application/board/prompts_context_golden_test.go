@@ -1,6 +1,7 @@
 package board
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -116,7 +117,7 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 			"2. Something in the code still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
 			"3. You could not verify something because of what is outside the code (your environment, a missing integration, credential, device or stage) and nothing in the code is wrong → do NOT move to `need_revision`: the developer cannot fix it and the task would come straight back to you unchanged. Call ask_user once, in choice mode, naming exactly what is missing and what would unblock it (for example \"I provided it, retry\", \"accept code review + unit tests for this criterion\", \"move to need_revision\").\n"+
 			"If the move is refused, read the error: it names exactly what is missing, and fixing that and retrying the move is part of this run. Do not re-review, do not start new testing, and do not change your verdict.",
-		reviewVerdictSweepPrompt(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA, "", nil))
+		reviewVerdictSweepPrompt(domain.TaskColumnCodeReview, domain.TaskColumnReadyForQA, "", nil, caseGap{}))
 
 	missing := []domain.AcceptanceCriterion{{ID: goldenCriterionID1, Text: "Export includes archived rows"}}
 	assert.Equal(t,
@@ -129,7 +130,7 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 			"2. Something in the code still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
 			"3. You could not verify something because of what is outside the code (your environment, a missing integration, credential, device or stage) and nothing in the code is wrong → do NOT move to `need_revision`: the developer cannot fix it and the task would come straight back to you unchanged. Call ask_user once, in choice mode, naming exactly what is missing and what would unblock it (for example \"I provided it, retry\", \"accept code review + unit tests for this criterion\", \"move to need_revision\").\n"+
 			"If the move is refused, read the error: it names exactly what is missing, and fixing that and retrying the move is part of this run. Do not re-review, do not start new testing, and do not change your verdict.",
-		reviewVerdictSweepPrompt(domain.TaskColumnInQA, domain.TaskColumnDone, domain.CriterionReviewRoleQA, missing))
+		reviewVerdictSweepPrompt(domain.TaskColumnInQA, domain.TaskColumnDone, domain.CriterionReviewRoleQA, missing, caseGap{}))
 
 	missing2 := []domain.AcceptanceCriterion{
 		{ID: goldenCriterionID1, Text: "First criterion"},
@@ -146,7 +147,19 @@ func TestGolden_ReviewVerdictSweepPrompt(t *testing.T) {
 			"2. Something in the code still needs work → call move_board_task to `need_revision`, and make sure your findings are on the task as a numbered comment.\n"+
 			"3. You could not verify something because of what is outside the code (your environment, a missing integration, credential, device or stage) and nothing in the code is wrong → do NOT move to `need_revision`: the developer cannot fix it and the task would come straight back to you unchanged. Call ask_user once, in choice mode, naming exactly what is missing and what would unblock it (for example \"I provided it, retry\", \"accept code review + unit tests for this criterion\", \"move to need_revision\").\n"+
 			"If the move is refused, read the error: it names exactly what is missing, and fixing that and retrying the move is part of this run. Do not re-review, do not start new testing, and do not change your verdict.",
-		reviewVerdictSweepPrompt(domain.TaskColumnHumanUAT, domain.TaskColumnReleased, domain.CriterionReviewRoleQA, missing2))
+		reviewVerdictSweepPrompt(domain.TaskColumnHumanUAT, domain.TaskColumnReleased, domain.CriterionReviewRoleQA, missing2, caseGap{}))
+
+	planned := caseGap{Planned: []domain.TaskTestCase{{ID: goldenCriterionID2, Title: "expired token is rejected"}}}
+	got := reviewVerdictSweepPrompt(domain.TaskColumnInQA, domain.TaskColumnHumanUAT, domain.CriterionReviewRoleQA, missing, planned)
+	assert.Contains(t, got, "Your review is finished but the task is still in `in_qa`"+
+		" — you did not record where it goes, so the board shows it as still under review and nobody picks it up.\n"+
+		"\nFirst, your test cases: 1 are still `planned` — written down and never given a result. Every move out of this column, forward or to need_revision, is REFUSED while any case is planned:\n"+
+		"- [00000000-0000-0000-0000-000000000002] expired token is rejected\n"+
+		"For EACH id above call set_test_case_result now")
+	assert.Less(t, strings.Index(got, "set_test_case_result"), strings.Index(got, "review_criterion"))
+
+	none := reviewVerdictSweepPrompt(domain.TaskColumnInQA, domain.TaskColumnHumanUAT, domain.CriterionReviewRoleQA, nil, caseGap{None: true})
+	assert.Contains(t, none, "this task carries none, and every move out of this column")
 }
 
 func TestGolden_VerifyFixPrompt(t *testing.T) {

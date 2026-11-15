@@ -46,6 +46,8 @@ type testCasesMissingInput struct{ Target string }
 
 var testCasesMissingKey = prompt.Define("guard.test_cases_missing", testCasesMissingInput{Target: "human_uat"})
 
+var testCasesNoFailureKey = prompt.Define("guard.test_cases_no_failure", testCasesMissingInput{Target: "need_revision"})
+
 type testCasesPlannedInput struct {
 	Target  string
 	Count   int
