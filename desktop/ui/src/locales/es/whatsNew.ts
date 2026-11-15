@@ -8,6 +8,15 @@ export const whatsNew = {
     help: "Mira qué ha cambiado en la última versión de TaskTrooper.",
     open: "Mostrar novedades",
   },
+  v0_3_19: {
+    title: "QA que prueba y termina, pruebas automatizadas por repositorio, una vista previa por tarea",
+    items: {
+      qaManualRound: "QA ahora prueba el producto en ejecución según los criterios de la tarea en lugar de compilarlo: el build y las pruebas unitarias quedan en la revisión de código.",
+      qaFinishes: "Una ronda de QA no puede terminar con un caso sin ejecutar o un criterio sin veredicto, ni devolver una tarea sin un fallo registrado.",
+      automationTests: "Activa Pruebas automatizadas en un repositorio (Componentes → Revisión): QA añade los casos de cada tarea como pruebas Testcontainers + WireMock en qa-automation/, y una tarea solo sale de QA con esa suite en verde. Al activarlo se abre una tarea que escribe las pruebas que faltan.",
+      taskPreviews: "Cada tarea tiene su propia vista previa local en su propio puerto, y mover una tarea solo detiene la suya.",
+    },
+  },
   v0_3_18: {
     title: "Habla con tus agentes, adjunta y etiqueta en todas partes, planes de tareas más ligeros",
     items: {

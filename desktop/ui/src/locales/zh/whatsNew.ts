@@ -8,6 +8,15 @@ export const whatsNew = {
     help: "查看 TaskTrooper 最新版本的更新内容。",
     open: "显示新功能",
   },
+  v0_3_19: {
+    title: "会测试并收尾的 QA、按仓库的自动化测试、每个任务一个预览",
+    items: {
+      qaManualRound: "QA 现在按任务的验收标准测试运行中的产品，而不是编译它：构建和单元测试留给代码评审。",
+      qaFinishes: "QA 一轮测试不能留下未执行的用例或未裁定的标准就结束，也不能在没有记录失败的情况下把任务退回。",
+      automationTests: "为仓库开启自动化测试（组件 → 评审）：QA 会把每个任务的用例写成 qa-automation/ 下的 Testcontainers + WireMock 测试，只有该套件通过任务才能离开 QA。开启后会创建一个任务补齐仓库缺失的测试。",
+      taskPreviews: "每个任务在自己的端口上有独立的本地预览，移动任务只会停止该任务的预览。",
+    },
+  },
   v0_3_18: {
     title: "与智能体语音对话，随处附件和标记，更精简的任务计划",
     items: {

@@ -10,6 +10,15 @@ export const whatsNew = {
     help: "See what changed in the latest version of TaskTrooper.",
     open: "Show what's new",
   },
+  v0_3_19: {
+    title: "QA that tests and finishes, automation tests per repository, a preview per task",
+    items: {
+      qaManualRound: "QA now tests the running product against the task's criteria instead of compiling it: build and unit tests stay with code review.",
+      qaFinishes: "A QA round cannot end with a test case left unrun or a criterion left unruled, and it cannot send a task back without a recorded failure.",
+      automationTests: "Switch on Automation tests for a repository (Components → Review): QA adds each task's cases as Testcontainers + WireMock tests under qa-automation/, and a task leaves QA only with that suite green. Switching it on opens one task that writes the tests the repository is still missing.",
+      taskPreviews: "Each task gets its own local preview on its own port, and moving a task stops only that task's preview.",
+    },
+  },
   v0_3_18: {
     title: "Talk to your agents, attach and tag anywhere, leaner task plans",
     items: {

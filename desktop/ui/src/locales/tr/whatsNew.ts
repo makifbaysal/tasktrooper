@@ -8,6 +8,15 @@ export const whatsNew = {
     help: "TaskTrooper'ın son sürümünde nelerin değiştiğini gör.",
     open: "Yenilikleri göster",
   },
+  v0_3_19: {
+    title: "Test edip bitiren QA, repo bazlı otomasyon testleri, her göreve ayrı önizleme",
+    items: {
+      qaManualRound: "QA artık kodu derlemek yerine çalışan ürünü görevin kabul kriterlerine göre test ediyor; build ve unit testler code review'da kalıyor.",
+      qaFinishes: "Bir QA turu çalıştırılmamış test case'i ya da kararsız kriter bırakarak bitemez; kayıtlı bir hata olmadan görevi geri gönderemez.",
+      automationTests: "Bir repo için Otomasyon testleri'ni aç (Bileşenler → Review): QA her görevin case'lerini qa-automation/ altına Testcontainers + WireMock testi olarak ekler, görev QA'dan ancak bu suite yeşilken çıkar. Açınca reponun eksik testlerini yazan tek bir görev açılır.",
+      taskPreviews: "Her görev kendi portunda kendi yerel önizlemesini alır; bir görevi taşımak yalnızca o görevin önizlemesini durdurur.",
+    },
+  },
   v0_3_18: {
     title: "Ajanlarla sesli konuş, her yerde ekle ve etiketle, daha sade görev planları",
     items: {

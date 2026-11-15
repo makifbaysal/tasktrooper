@@ -8,6 +8,15 @@ export const whatsNew = {
     help: "Sieh nach, was sich in der neuesten Version von TaskTrooper geändert hat.",
     open: "Neuigkeiten anzeigen",
   },
+  v0_3_19: {
+    title: "QA, die testet und abschließt, automatisierte Tests pro Repository, eine Vorschau pro Aufgabe",
+    items: {
+      qaManualRound: "QA testet jetzt das laufende Produkt gegen die Kriterien der Aufgabe, statt es zu kompilieren: Build und Unit-Tests bleiben beim Code-Review.",
+      qaFinishes: "Eine QA-Runde kann nicht mit einem nicht ausgeführten Testfall oder einem unbewerteten Kriterium enden und keine Aufgabe ohne erfassten Fehler zurückschicken.",
+      automationTests: "Schalte Automatisierte Tests für ein Repository ein (Komponenten → Review): QA legt die Fälle jeder Aufgabe als Testcontainers- + WireMock-Tests unter qa-automation/ an, und eine Aufgabe verlässt QA nur mit grüner Suite. Beim Einschalten öffnet sich eine Aufgabe, die die fehlenden Tests schreibt.",
+      taskPreviews: "Jede Aufgabe bekommt ihre eigene lokale Vorschau auf eigenem Port, und das Verschieben einer Aufgabe stoppt nur deren Vorschau.",
+    },
+  },
   v0_3_18: {
     title: "Mit Agenten sprechen, überall anhängen und markieren, schlankere Aufgabenpläne",
     items: {

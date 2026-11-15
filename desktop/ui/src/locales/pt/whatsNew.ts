@@ -8,6 +8,15 @@ export const whatsNew = {
     help: "Veja o que mudou na versão mais recente do TaskTrooper.",
     open: "Mostrar novidades",
   },
+  v0_3_19: {
+    title: "QA que testa e conclui, testes automatizados por repositório, uma prévia por tarefa",
+    items: {
+      qaManualRound: "A QA agora testa o produto em execução segundo os critérios da tarefa em vez de compilá-lo: build e testes unitários ficam com a revisão de código.",
+      qaFinishes: "Uma rodada de QA não pode terminar com um caso não executado ou um critério sem veredito, nem devolver uma tarefa sem uma falha registrada.",
+      automationTests: "Ative Testes automatizados em um repositório (Componentes → Revisão): a QA adiciona os casos de cada tarefa como testes Testcontainers + WireMock em qa-automation/, e uma tarefa só sai da QA com essa suíte verde. Ativar abre uma tarefa que escreve os testes que faltam.",
+      taskPreviews: "Cada tarefa ganha sua própria prévia local em sua própria porta, e mover uma tarefa para só a prévia dela.",
+    },
+  },
   v0_3_18: {
     title: "Fale com seus agentes, anexe e marque em todo lugar, planos de tarefas mais enxutos",
     items: {
