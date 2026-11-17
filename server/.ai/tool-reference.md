@@ -201,22 +201,42 @@ Granted: `get_design_system` to every agent; `propose_design_system` to `ui-desi
 
 `{attach_to_task: true, title?}` also stores the image as an attachment of the run's task (`port.TaskImageAttacher`, `attachment.Service.AttachToTask`; `adapter/tools/toolattach`), so the human sees it under the task. Without a task in context the flag is ignored and the result says so; a failed save never fails the screenshot.
 
-### `telemetry_*` (TaskTrooper Telemetry, release engineer)
+### `telemetry_*` (TaskTrooper Telemetry)
 
-Read-only tools over the connected TaskTrooper Telemetry, through the same allowlisted service the UI proxy uses (`adapter/tools/telemetry`).
+Tools over the connected TaskTrooper Telemetry (`adapter/tools/telemetry`). Reads go through the same allowlisted service the UI
+proxy uses; the five writes go through its separate agent write path (`telemetry.Service.Write`, see the API spec).
 Without a connection each answers with the `guard.telemetry_not_configured` text. Answers over ~48 KB are halved list by list and
 wrapped `{truncated:[{field,total,shown}], hint, data}`.
 
 - **`telemetry_get_incident`** `{incident_id}` — the incident and its timeline (`rootCause` is a hint only).
 - **`telemetry_list_incidents`** `{state?, service?, endpoint? ("METHOD /route"), since? (epoch ms), limit? (20, max 100)}`.
-- **`telemetry_get_service`** `{service, range?, env?, endpoint_id? (slug), baseline? (prev|1d|7d)}` — health, endpoints with ids, deploys, dependencies; with `endpoint_id` also the root-cause comparison.
+- **`telemetry_get_service`** `{service, range?, env?}` — health, endpoints with ids, deploys, dependencies.
+- **`telemetry_explain_endpoint`** `{service, endpoint (slug or "METHOD /route", looked up), range?, env?, baseline? (prev|1d|7d)}` — the root-cause comparison of one endpoint and its dependencies against a baseline window.
 - **`telemetry_search_logs`** `{service?, level? (exact), q?, trace_id?, route?, range?, env?, before?, limit? (50, max 200)}`.
 - **`telemetry_search_traces`** `{trace_id? (alone: one trace), service?, endpoint? ("METHOD /route"), errors_only?, min_ms?, sort?, range?, env?, limit? (10, max 100)}`.
 - **`telemetry_list_errors`** `{fingerprint? (alone: one group with its stack), service?, route?, status?, range?, env?, limit? (20, max 100)}`.
 - **`telemetry_list_deploys`** `{service?, range?, env?}`.
-- **`telemetry_api_get`** `{path, query?}` — any other readable route (infra, kpis, monitors, apps, loadtests).
+- **`telemetry_list_slos`** `{service? (serviceId), slo_id? (alone: one)}` — KPIs with SLI, budget and burn rates.
+- **`telemetry_list_monitors`** `{service?, endpoint?, kind?, suggestions? (proposed default|all|none)}` — monitors (with `source`) plus code-analysis alert suggestions.
+- **`telemetry_list_load_tests`** `{run_id? (alone: one run), scenario_id?}` — runs, scenarios without their spec, target domains (host, verified, method; never the token).
+- **`telemetry_api_get`** `{path, query?}` — any other readable route (infra, apps, replays, profiles, ai).
 
-The release engineer holds them with `propose_incident_remedy` and `resolve_incident`; the flow is the `telemetry-incident-response` skill.
+Writes (release engineer only). Each except `telemetry_stop_load_test` acts only with `user_approved: true`; without it the answer
+is `{dry_run, would_send:{method,path,body}, approval_needed, …}` and nothing is written (the audience tools' pattern; the agent asks
+with `ask_user` on a card). Telemetry stamps what they create `source: "agent"`, and a `replace_id` must name a record an agent created
+(checked before approval is asked for, and again on send).
+
+- **`telemetry_propose_monitor`** `{monitor, preview_range? (24h), replace_id?, user_approved?}` — validates kind / severity / op, states the window (5m, anomaly 15m); without approval it also replays the monitor (`POST monitors/preview`, series trimmed to the last 60 buckets).
+- **`telemetry_propose_slo`** `{slo, replace_id?, user_approved?}` — an endpoint target ref must be "METHOD /route"; latency needs `good.thresholdMs`.
+- **`telemetry_accept_suggestion`** `{suggestion_id, threshold?, severity?, channels?, user_approved?}` — the dry run shows the suggestion.
+- **`telemetry_run_load_test`** `{scenario_id? | scenario:{name, spec}, environment? (staging default|production), user_approved?}` — exactly one of the two; a draft scenario is refused; the target host must be a verified domain (exact, or a subdomain of a DNS-verified one); a new spec without `gate` gets `{abortErrorRate: 0.5, abortP95Ms: 10000}`; a host that is the run's repository's `prod` deploy target (base or health URL) is refused unless `environment: "production"`.
+- **`telemetry_stop_load_test`** `{run_id}` — no approval: it only takes load away.
+
+Who holds them (`application/catalog/role_tools.go`, mirrored in each `catalog.yaml`): the release engineer all of them, with
+`propose_incident_remedy` and `resolve_incident` (the flow is the `telemetry-incident-response` skill); developers (backend, frontend,
+mobile, data, game) and QA the diagnose set `telemetry_get_service`, `telemetry_explain_endpoint`, `telemetry_search_traces`,
+`telemetry_search_logs`, `telemetry_list_errors`; the security agent logs, traces and errors; the architect `telemetry_get_service`;
+the product manager `telemetry_get_service` and `telemetry_list_slos`.
 
 ### `get_environment`, `query_runtime_logs`, `list_runtime_errors`, `list_deployments`
 
