@@ -186,7 +186,7 @@ func TestEveryWebAndEndpointsTableRenders(t *testing.T) {
 			}
 		}
 	}
-	assert.ElementsMatch(t, []string{"otel-http", "datadog-apm", "newrelic-apm"}, seen[domain.RecipeTableEndpoints])
+	assert.ElementsMatch(t, []string{"otel-http", "datadog-apm", "newrelic-apm", "tasktrooper-telemetry"}, seen[domain.RecipeTableEndpoints])
 	for _, name := range domain.WebTables() {
 		assert.Subset(t, seen[name], []string{"posthog-web", "ga4-web", "plausible-web"}, name)
 	}

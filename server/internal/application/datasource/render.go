@@ -81,6 +81,8 @@ func dialectFor(kind domain.DataSourceKind) dialect {
 		return datadogDialect{}
 	case domain.DataSourceKindNewRelic:
 		return nrqlDialect{}
+	case domain.DataSourceKindTaskTrooperTelemetry:
+		return telemetryDialect{}
 	}
 	return promQLDialect{}
 }
