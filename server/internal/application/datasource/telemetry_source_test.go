@@ -19,11 +19,13 @@ type telemetryKind struct {
 	reader port.TelemetryReader
 }
 
-func (k *telemetryKind) Kind() domain.DataSourceKind { return domain.DataSourceKindTaskTrooperTelemetry }
+func (k *telemetryKind) Kind() domain.DataSourceKind {
+	return domain.DataSourceKindTaskTrooperTelemetry
+}
 func (k *telemetryKind) Schema() domain.DataSourceSchema {
 	return domain.DataSourceSchema{Label: "TaskTrooper Telemetry", Fields: []domain.DataSourceField{}}
 }
-func (k *telemetryKind) Capabilities() []domain.Capability { return nil }
+func (k *telemetryKind) Capabilities() []domain.Capability   { return nil }
 func (k *telemetryKind) SetTelemetry(r port.TelemetryReader) { k.reader = r }
 func (k *telemetryKind) Verify(ctx context.Context, _ domain.DataSource, _ map[string]string) (domain.DataSourceInfo, error) {
 	if _, err := k.reader.Get(ctx, "services", nil); err != nil {
