@@ -3,6 +3,7 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -50,7 +51,15 @@ func (c *Client) Get(ctx context.Context, baseURL, apiKey, relPath string, query
 	if err != nil {
 		return port.TelemetryResponse{}, err
 	}
-	return c.do(ctx, target, apiKey)
+	return c.do(ctx, http.MethodGet, target, apiKey, nil)
+}
+
+func (c *Client) Send(ctx context.Context, baseURL, apiKey, method, relPath string, query url.Values, body []byte) (port.TelemetryResponse, error) {
+	target, err := c.endpoint(baseURL, relPath, query)
+	if err != nil {
+		return port.TelemetryResponse{}, err
+	}
+	return c.do(ctx, method, target, apiKey, body)
 }
 
 func (c *Client) Ping(ctx context.Context, baseURL string) error {
@@ -60,7 +69,7 @@ func (c *Client) Ping(ctx context.Context, baseURL string) error {
 	}
 	u.Path = strings.TrimRight(u.Path, "/") + "/healthz"
 	u.RawQuery = ""
-	resp, err := c.do(ctx, u.String(), "")
+	resp, err := c.do(ctx, http.MethodGet, u.String(), "", nil)
 	if err != nil {
 		return err
 	}
@@ -70,12 +79,19 @@ func (c *Client) Ping(ctx context.Context, baseURL string) error {
 	return nil
 }
 
-func (c *Client) do(ctx context.Context, target, apiKey string) (port.TelemetryResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+func (c *Client) do(ctx context.Context, method, target, apiKey string, payload []byte) (port.TelemetryResponse, error) {
+	var reader io.Reader
+	if payload != nil {
+		reader = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, reader)
 	if err != nil {
 		return port.TelemetryResponse{}, fmt.Errorf("%w: %v", port.ErrTelemetryUnreachable, err)
 	}
 	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}

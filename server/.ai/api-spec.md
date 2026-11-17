@@ -2458,6 +2458,22 @@ the **release engineer** (`domain.RoleKeyRelease`) with the `briefs.prodops.tele
 back to the repository's default assignee and the developer brief. A telemetry incident that resolves resolves the TaskTrooper
 incident (asked about by id, so a page-limited list never closes one by mistake); one a person resolved is not reopened.
 
+**Agent writes.** `telemetry.Service.Write` is the only write path, used by the agents' telemetry tools and the deploy marker,
+never by an HTTP route (the proxy stays GET-only). It accepts exactly the method + route pairs in `writeRoutes`
+(`application/telemetry/allowlist.go`): `POST monitors`, `POST monitors/preview`, `PUT|PATCH|DELETE monitors/{id}`, `POST kpis`,
+`PUT|DELETE kpis/{id}`, `POST loadtests/scenarios`, `POST loadtests/scenarios/{id}/runs`, `POST loadtests/runs/{id}/stop`,
+`POST suggestions/{id}/accept|reject`, `POST deploys`. Creates of monitors, KPIs and scenarios are stamped `source: "agent"`;
+changing or deleting a monitor or KPI first reads it and is refused (`ErrNotOwned`) unless its source is `agent`. The agent tools
+that call it ask for the user's yes first (`user_approved`, see the tool reference).
+
+**Deploy markers.** When a release's deploy succeeds (`release.settleDeploySuccess`, whether it then verifies or goes straight to
+`awaiting_verdict` on a failed smoke check), `telemetry.DeployMarker` posts `POST /api/v1/deploys`
+`{service, environment: "production", version: <commit SHA, else the release version>, commitSha, message, ts: deployed_at}` off
+the sweeper's path. It is best effort: no connection, no version or any failure is logged and dropped, never failing the release.
+TaskTrooper keeps no component → service mapping, so the service is the first of the component's name, its folder, the
+repository's name and its checkout folder that matches (letters and digits, case-insensitive) a service `GET /services?range=7d`
+reports; with no match, the component's name.
+
 ## Project model
 
 Components, checks, links, resources and scans — the full route list and

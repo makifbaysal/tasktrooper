@@ -377,14 +377,18 @@ func (s *Service) settleDeploySuccess(ctx context.Context, r domain.Release, sta
 			s.logSweepUpdate(err, r.ID)
 			return
 		}
+		s.markDeployed(ctx, updated)
 		s.handBack(ctx, updated)
 		return
 	}
 
 	r.Status = domain.ReleaseVerifying
-	if _, err := s.store.Update(ctx, r, domain.ReleaseDeploying); err != nil {
+	updated, err := s.store.Update(ctx, r, domain.ReleaseDeploying)
+	if err != nil {
 		s.logSweepUpdate(err, r.ID)
+		return
 	}
+	s.markDeployed(ctx, updated)
 }
 
 func firstSmokeFailure(results []domain.SmokeResult) (string, bool) {

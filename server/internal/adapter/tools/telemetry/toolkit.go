@@ -1,7 +1,11 @@
 // Package telemetry exposes the TaskTrooper Telemetry data to agents as
-// ordinary tools — incidents, service health, logs, traces, errors and
-// deploys — through the same allowlisted, key-injecting service the desktop UI
-// reads through. They only read; nothing here can change telemetry.
+// ordinary tools — incidents, service health, logs, traces, errors, deploys,
+// SLOs, monitors and load tests — through the same allowlisted,
+// key-injecting service the desktop UI reads through. The few tools that
+// change telemetry (propose a monitor or an SLO, accept a suggestion, run or
+// stop a load test) go through its separate write path and, except stopping
+// a load test, only act with `user_approved: true`; without it they answer
+// with exactly what they would send.
 package telemetry
 
 import (
@@ -14,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/makifbaysal/tasktrooper/server/internal/application/prompt"
 	telemetryapp "github.com/makifbaysal/tasktrooper/server/internal/application/telemetry"
 	"github.com/makifbaysal/tasktrooper/server/internal/domain"
@@ -25,15 +31,30 @@ type Reader interface {
 	Get(ctx context.Context, relPath string, query url.Values) (port.TelemetryResponse, error)
 }
 
+// Writer is application/telemetry.Service's agent write path.
+type Writer interface {
+	Write(ctx context.Context, method, relPath string, query url.Values, body any) (port.TelemetryResponse, error)
+}
+
+// DeployTargets is deploy.Service: where a repository's production answers,
+// so a load test cannot reach it unasked.
+type DeployTargets interface {
+	Targets(ctx context.Context, repositoryID uuid.UUID) ([]domain.DeployTarget, error)
+}
+
+// ToolKit: Reader is required; the write tools are offered only with a
+// Writer. Targets is optional.
 type ToolKit struct {
-	Reader Reader
+	Reader  Reader
+	Writer  Writer
+	Targets DeployTargets
 }
 
 func NewExecutors(k *ToolKit) []port.ToolExecutor {
 	if k == nil || k.Reader == nil {
 		return nil
 	}
-	return []port.ToolExecutor{
+	out := []port.ToolExecutor{
 		&getIncidentTool{kit: k},
 		&listIncidentsTool{kit: k},
 		&getServiceTool{kit: k},
@@ -42,14 +63,36 @@ func NewExecutors(k *ToolKit) []port.ToolExecutor {
 		&listErrorsTool{kit: k},
 		&listDeploysTool{kit: k},
 		&apiGetTool{kit: k},
+		&explainEndpointTool{kit: k},
+		&listSLOsTool{kit: k},
+		&listMonitorsTool{kit: k},
+		&listLoadTestsTool{kit: k},
 	}
+	if k.Writer != nil {
+		out = append(out,
+			&proposeMonitorTool{kit: k},
+			&proposeSLOTool{kit: k},
+			&acceptSuggestionTool{kit: k},
+			&runLoadTestTool{kit: k},
+			&stopLoadTestTool{kit: k},
+		)
+	}
+	return out
 }
 
-// ToolNames are the names NewExecutors registers.
-var ToolNames = []string{
-	getIncidentToolName, listIncidentsToolName, getServiceToolName, searchLogsToolName,
-	searchTracesToolName, listErrorsToolName, listDeploysToolName, apiGetToolName,
-}
+// ReadToolNames are the tools NewExecutors always registers, WriteToolNames
+// the ones it adds with a Writer.
+var (
+	ReadToolNames = []string{
+		getIncidentToolName, listIncidentsToolName, getServiceToolName, searchLogsToolName,
+		searchTracesToolName, listErrorsToolName, listDeploysToolName, apiGetToolName,
+		explainEndpointToolName, listSLOsToolName, listMonitorsToolName, listLoadTestsToolName,
+	}
+	WriteToolNames = []string{
+		proposeMonitorToolName, proposeSLOToolName, acceptSuggestionToolName, runLoadTestToolName, stopLoadTestToolName,
+	}
+	ToolNames = append(append([]string(nil), ReadToolNames...), WriteToolNames...)
+)
 
 // maxResultBytes keeps one answer inside a context budget.
 const maxResultBytes = 48 << 10
@@ -62,6 +105,7 @@ var (
 	unreachableKey   = prompt.Define("guard.telemetry_unreachable", unreachableInput{Detail: "connection refused"})
 	pathKey          = prompt.Define[struct{}]("guard.telemetry_path_not_allowed", struct{}{})
 	truncatedKey     = prompt.Define[struct{}]("tool_results.telemetry_truncated", struct{}{})
+	notOwnedKey      = prompt.Define[struct{}]("guard.telemetry_not_owned", struct{}{})
 )
 
 func toolError(name, message string) domain.ToolResult {
@@ -91,20 +135,48 @@ func decode(name, arguments string, into any) *domain.ToolResult {
 // a tool call answers with.
 func fetch(ctx context.Context, k *ToolKit, rel string, q url.Values) (any, string) {
 	resp, err := k.Reader.Get(ctx, rel, q)
-	switch {
-	case errors.Is(err, telemetryapp.ErrNotConfigured):
-		return nil, prompt.Text(notConfiguredKey)
-	case errors.Is(err, telemetryapp.ErrUnauthorized):
-		return nil, prompt.Text(unauthorizedKey)
-	case errors.Is(err, telemetryapp.ErrPathNotAllowed):
-		return nil, prompt.Text(pathKey)
-	case errors.Is(err, port.ErrTelemetryUnreachable):
-		return nil, unreachableKey.Render(unreachableInput{Detail: strings.TrimPrefix(err.Error(), port.ErrTelemetryUnreachable.Error()+": ")})
-	case err != nil:
-		return nil, err.Error()
+	if err != nil {
+		return nil, failure(err)
 	}
 	if resp.Status >= 400 {
 		return nil, fmt.Sprintf("telemetry answered %d: %s", resp.Status, snippet(resp.Body))
+	}
+	var out any
+	if err := json.Unmarshal(resp.Body, &out); err != nil {
+		return nil, fmt.Sprintf("telemetry answered something that is not JSON: %s", snippet(resp.Body))
+	}
+	return out, ""
+}
+
+// failure is the text a tool answers with for a Reader or Writer error.
+func failure(err error) string {
+	switch {
+	case errors.Is(err, telemetryapp.ErrNotConfigured):
+		return prompt.Text(notConfiguredKey)
+	case errors.Is(err, telemetryapp.ErrUnauthorized):
+		return prompt.Text(unauthorizedKey)
+	case errors.Is(err, telemetryapp.ErrPathNotAllowed):
+		return prompt.Text(pathKey)
+	case errors.Is(err, telemetryapp.ErrNotOwned):
+		return prompt.Text(notOwnedKey)
+	case errors.Is(err, port.ErrTelemetryUnreachable):
+		return unreachableKey.Render(unreachableInput{Detail: strings.TrimPrefix(err.Error(), port.ErrTelemetryUnreachable.Error()+": ")})
+	}
+	return err.Error()
+}
+
+// send is one write through the Writer, returned as decoded JSON (nil for an
+// empty answer). Failures come back as the text a tool call answers with.
+func send(ctx context.Context, k *ToolKit, method, rel string, q url.Values, body any) (any, string) {
+	resp, err := k.Writer.Write(ctx, method, rel, q, body)
+	if err != nil {
+		return nil, failure(err)
+	}
+	if resp.Status >= 400 {
+		return nil, fmt.Sprintf("telemetry answered %d: %s", resp.Status, snippet(resp.Body))
+	}
+	if len(strings.TrimSpace(string(resp.Body))) == 0 {
+		return nil, ""
 	}
 	var out any
 	if err := json.Unmarshal(resp.Body, &out); err != nil {

@@ -57,6 +57,11 @@ tool_policy:
         - query_runtime_logs
         - list_runtime_errors
         - list_deployments
+        - telemetry_get_service
+        - telemetry_explain_endpoint
+        - telemetry_search_traces
+        - telemetry_search_logs
+        - telemetry_list_errors
         - get_task_pull_request
         - comment_on_pull_request
         - commit_task_changes

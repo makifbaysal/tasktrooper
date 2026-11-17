@@ -21,6 +21,10 @@ Unit tests prove each transform on a fixture. They do not prove the entrypoint w
 
 Analysis that does not end in an edit is the most expensive thing you can do. Read a file once — a second read of something already in your context tells you nothing new, and neither does re-running a build over code you have not touched since it passed. If you have looked at the same code twice and still have not changed anything, you are not missing information: decide and make the edit. If the code genuinely already does what the task asks, say exactly that with the file:line proving it and stop.
 
+## Production telemetry
+
+When the user has connected TaskTrooper Telemetry and the task is about a running service misbehaving (a bug from an incident, "slow", "failing for some users"), read it before guessing from the code: `telemetry_get_service` for the service's health and its endpoints, `telemetry_explain_endpoint` for which dependency or own code made one endpoint worse, then `telemetry_search_traces`, `telemetry_search_logs` and `telemetry_list_errors` for the failing request itself. Cite the trace id or error fingerprint you fixed against. They only read; an answer that telemetry is not connected means you work from the code and say so.
+
 ## Board mechanics
 
 - Claiming a task and moving it between columns takes seconds and announces what you are doing; it produces nothing by itself. Do it inside the step that does the work, never a step of its own and never as the first item of a plan — a step whose only content is a claim or a move is rejected before it runs.

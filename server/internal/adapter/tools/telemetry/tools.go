@@ -107,21 +107,17 @@ func (t *getServiceTool) Name() string { return getServiceToolName }
 
 func (t *getServiceTool) Definition() domain.ToolDefinition {
 	return definition(getServiceToolName, objectSchema(map[string]interface{}{
-		"service":     stringSchema(),
-		"range":       rangeSchema(),
-		"env":         stringSchema(),
-		"endpoint_id": stringSchema(),
-		"baseline":    map[string]interface{}{"type": "string", "enum": []string{"prev", "1d", "7d"}},
+		"service": stringSchema(),
+		"range":   rangeSchema(),
+		"env":     stringSchema(),
 	}, "service"))
 }
 
 func (t *getServiceTool) Execute(ctx context.Context, arguments string) domain.ToolResult {
 	var args struct {
-		Service    string `json:"service"`
-		Range      string `json:"range"`
-		Env        string `json:"env"`
-		EndpointID string `json:"endpoint_id"`
-		Baseline   string `json:"baseline"`
+		Service string `json:"service"`
+		Range   string `json:"range"`
+		Env     string `json:"env"`
 	}
 	if bad := decode(t.Name(), arguments, &args); bad != nil {
 		return *bad
@@ -145,17 +141,6 @@ func (t *getServiceTool) Execute(ctx context.Context, arguments string) domain.T
 			out[key] = v
 		} else {
 			out[key+"_error"] = msg
-		}
-	}
-	if id := strings.TrimSpace(args.EndpointID); id != "" {
-		rq := url.Values{}
-		setIf(rq, "range", args.Range)
-		setIf(rq, "env", args.Env)
-		setIf(rq, "baseline", args.Baseline)
-		if v, msg := fetch(ctx, t.kit, base+"/endpoints/"+segment(id)+"/rca", rq); msg == "" {
-			out["rca"] = v
-		} else {
-			out["rca_error"] = msg
 		}
 	}
 	return toolJSON(t.Name(), fit(out))
