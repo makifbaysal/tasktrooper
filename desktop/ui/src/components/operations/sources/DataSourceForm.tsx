@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { TELEMETRY_SOURCE_KIND, TelemetrySourceHint } from "@/components/operations/sources/TelemetrySourceHint";
 import {
   api,
   ApiError,
@@ -104,6 +105,8 @@ export function DataSourceForm({
   const [focusRequest, setFocusRequest] = useState(0);
   const formRef = useRef<HTMLDivElement>(null);
   const draftReady = Boolean(kind) && draftKind === kind?.kind;
+  const telemetryKind = kind?.kind === TELEMETRY_SOURCE_KIND;
+  const [telemetryConfigured, setTelemetryConfigured] = useState(true);
 
   // After a refused save, the first field that needs attention takes focus
   // (in the form's order), so the error is where the keyboard and the screen
@@ -345,7 +348,7 @@ export function DataSourceForm({
               clearError("name");
             }}
             placeholder={
-              target
+              target || telemetryKind
                 ? undefined
                 : kind.fields.some((x) => x.type === "url")
                   ? f("namePlaceholder")
@@ -364,6 +367,7 @@ export function DataSourceForm({
             </p>
           )}
         </div>
+        {telemetryKind && <TelemetrySourceHint onConfigured={setTelemetryConfigured} onNavigate={close} />}
         {visibleFields(kind, draft).map((field) => (
           <DataSourceFieldInput
             key={field.key}
@@ -396,7 +400,7 @@ export function DataSourceForm({
         <Button variant="outline" onClick={close} disabled={saving}>
           {t("common.cancel")}
         </Button>
-        <Button onClick={() => void save()} disabled={saving || !draftReady}>
+        <Button onClick={() => void save()} disabled={saving || !draftReady || (telemetryKind && !target && !telemetryConfigured)}>
           {saving ? f("saving") : f("save")}
         </Button>
       </>
