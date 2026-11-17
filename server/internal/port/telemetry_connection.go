@@ -29,11 +29,14 @@ type TelemetryResponse struct {
 // timeout, a destination the URL policy refuses).
 var ErrTelemetryUnreachable = errors.New("telemetry is unreachable")
 
-// TelemetryClient performs one authenticated GET against the telemetry API.
-// relPath is relative to the API root (/api/v1/); the key is sent as a bearer
-// token and never leaves the client.
+// TelemetryClient performs one authenticated request against the telemetry
+// API. relPath is relative to the API root (/api/v1/); the key is sent as a
+// bearer token and never leaves the client. Which paths and methods a caller
+// may reach is the application's decision, not the client's.
 type TelemetryClient interface {
 	Get(ctx context.Context, baseURL, apiKey, relPath string, query url.Values) (TelemetryResponse, error)
+	// Send is a request with a JSON body (nil sends none).
+	Send(ctx context.Context, baseURL, apiKey, method, relPath string, query url.Values, body []byte) (TelemetryResponse, error)
 	// Ping reaches the unauthenticated health endpoint.
 	Ping(ctx context.Context, baseURL string) error
 }

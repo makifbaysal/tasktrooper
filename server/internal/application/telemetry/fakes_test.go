@@ -27,6 +27,8 @@ func (f *fakeStore) SetTelemetrySettings(_ context.Context, baseURL string, apiK
 type call struct {
 	baseURL, apiKey, path string
 	query                 url.Values
+	method                string
+	body                  string
 }
 
 type fakeClient struct {
@@ -39,7 +41,7 @@ type fakeClient struct {
 
 func (f *fakeClient) Get(_ context.Context, baseURL, apiKey, relPath string, query url.Values) (port.TelemetryResponse, error) {
 	f.mu.Lock()
-	c := call{baseURL, apiKey, relPath, query}
+	c := call{baseURL: baseURL, apiKey: apiKey, path: relPath, query: query, method: "GET"}
 	f.calls = append(f.calls, c)
 	f.mu.Unlock()
 	if f.respond != nil {
@@ -53,4 +55,15 @@ func (f *fakeClient) Ping(context.Context, string) error {
 	defer f.mu.Unlock()
 	f.pings++
 	return f.pingErr
+}
+
+func (f *fakeClient) Send(_ context.Context, baseURL, apiKey, method, relPath string, query url.Values, body []byte) (port.TelemetryResponse, error) {
+	f.mu.Lock()
+	c := call{baseURL: baseURL, apiKey: apiKey, path: relPath, query: query, method: method, body: string(body)}
+	f.calls = append(f.calls, c)
+	f.mu.Unlock()
+	if f.respond != nil {
+		return f.respond(c)
+	}
+	return port.TelemetryResponse{Status: 201, ContentType: "application/json", Body: []byte(`{}`)}, nil
 }

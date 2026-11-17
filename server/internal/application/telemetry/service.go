@@ -21,6 +21,9 @@ var (
 	ErrPathNotAllowed = errors.New("telemetry path is not allowed")
 	ErrUnauthorized   = errors.New("telemetry rejected the API key")
 	ErrInvalidURL     = errors.New("telemetry URL must be an http(s) URL")
+	// ErrNotOwned refuses an agent's change to a monitor or KPI an agent did
+	// not create.
+	ErrNotOwned = errors.New("telemetry record was not created by an agent")
 )
 
 const statusTTL = 15 * time.Second

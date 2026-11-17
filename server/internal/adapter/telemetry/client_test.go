@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -91,4 +92,38 @@ func TestPingFailsOnAServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
 	defer srv.Close()
 	assert.Error(t, testClient().Ping(context.Background(), srv.URL))
+}
+
+func TestSendCarriesMethodBodyAndKey(t *testing.T) {
+	var gotMethod, gotPath, gotType, gotAuth, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		gotMethod, gotPath, gotType, gotAuth, gotBody = r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Authorization"), string(raw)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"m1"}`))
+	}))
+	defer srv.Close()
+
+	resp, err := testClient().Send(context.Background(), srv.URL, "k", http.MethodPost, "monitors", nil, []byte(`{"name":"x"}`))
+	require.NoError(t, err)
+	assert.Equal(t, 201, resp.Status)
+	assert.Equal(t, http.MethodPost, gotMethod)
+	assert.Equal(t, "/api/v1/monitors", gotPath)
+	assert.Equal(t, "application/json", gotType)
+	assert.Equal(t, "Bearer k", gotAuth)
+	assert.Equal(t, `{"name":"x"}`, gotBody)
+}
+
+func TestSendWithoutABodySendsNoContentType(t *testing.T) {
+	var gotType string
+	var gotLen int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotType, gotLen = r.Header.Get("Content-Type"), r.ContentLength
+	}))
+	defer srv.Close()
+
+	_, err := testClient().Send(context.Background(), srv.URL, "k", http.MethodPost, "loadtests/runs/r1/stop", nil, nil)
+	require.NoError(t, err)
+	assert.Empty(t, gotType)
+	assert.Zero(t, gotLen)
 }
