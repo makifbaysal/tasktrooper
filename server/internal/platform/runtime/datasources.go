@@ -19,6 +19,7 @@ import (
 	prometheusds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/prometheus"
 	rabbitmqds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/rabbitmq"
 	sentryds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/sentry"
+	telemetryds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/telemetry"
 	tempods "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/tempo"
 	vercelds "github.com/makifbaysal/tasktrooper/server/internal/adapter/datasource/vercel"
 	pgstore "github.com/makifbaysal/tasktrooper/server/internal/adapter/storage/postgres"
@@ -39,7 +40,8 @@ import (
 // credentials through their store, so a source of theirs holds no copy; the
 // Google Play and App Store Connect kinds read the workspace's store
 // credentials the same way, handed over once the store ops service exists
-// (SetStoreCredentials).
+// (SetStoreCredentials). The TaskTrooper Telemetry kind reads the connection saved
+// in Settings, handed over once the telemetry service exists (SetTelemetry).
 func newDataSourceService(db *pgstore.DB, cipher *secrets.Cipher, cipherErr error) *datasourceapp.Service {
 	store := pgstore.NewDataSourceStore(db)
 	store.SetCipher(cipher, cipherErr)
@@ -82,5 +84,6 @@ func dataSourceKinds() []port.DataSourceKindAdapter {
 		datadogds.New(),
 		newrelicds.New(),
 		vercelds.New(),
+		telemetryds.New(),
 	}
 }

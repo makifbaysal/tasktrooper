@@ -40,3 +40,19 @@ type TelemetryClient interface {
 	// Ping reaches the unauthenticated health endpoint.
 	Ping(ctx context.Context, baseURL string) error
 }
+
+// TelemetryReader is one allowlisted GET against the TaskTrooper Telemetry
+// connection saved in Settings, its key injected by the reader (the
+// application's telemetry.Service, on top of TelemetryClient). A data source
+// of kind tasktrooper_telemetry reads through it, so it holds no URL or key
+// of its own. An unsaved connection is an error whose text says so.
+type TelemetryReader interface {
+	Get(ctx context.Context, relPath string, query url.Values) (TelemetryResponse, error)
+}
+
+// TelemetrySourceMarkStore remembers that a person deleted the data source
+// made on its own for the telemetry connection, so it is not made again.
+type TelemetrySourceMarkStore interface {
+	TelemetrySourceDeleted(ctx context.Context) (bool, error)
+	SetTelemetrySourceDeleted(ctx context.Context, deleted bool) error
+}

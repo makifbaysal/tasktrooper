@@ -240,3 +240,27 @@ func TestStatusCacheIsKeptPerScope(t *testing.T) {
 	assert.True(t, got.Reachable, "tenant A keeps its own cached answer")
 	assert.Equal(t, 2, client.pings)
 }
+
+func TestUpdateTellsItsObservers(t *testing.T) {
+	svc, _, _ := newTestService()
+	done := make(chan struct{}, 2)
+	svc.OnUpdate(func(context.Context) { done <- struct{}{} })
+	_, err := svc.Update(context.Background(), "http://t.example", ptr("k"))
+	require.NoError(t, err)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the observer was not told")
+	}
+	_, err = svc.Update(context.Background(), "nope", nil)
+	require.Error(t, err)
+	select {
+	case <-done:
+		t.Fatal("a refused update is not a change")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestServiceIsATelemetryReader(t *testing.T) {
+	var _ port.TelemetryReader = (*Service)(nil)
+}

@@ -50,6 +50,26 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (domain.DataSource, err
 // cannot be reached yet is kept (status "error") rather than refused; only a
 // request that does not fit the kind's schema is.
 func (s *Service) Create(ctx context.Context, req domain.SaveDataSourceRequest) (domain.DataSource, error) {
+	if !isSingleton(req.Kind) {
+		return s.create(ctx, req)
+	}
+	s.provisionMu.Lock()
+	defer s.provisionMu.Unlock()
+	existing, err := s.sourcesOf(ctx, req.Kind)
+	if err != nil {
+		return domain.DataSource{}, err
+	}
+	if len(existing) > 0 {
+		return domain.DataSource{}, FieldErrors{"kind": FieldDuplicate}
+	}
+	created, err := s.create(ctx, req)
+	if err == nil {
+		s.markTelemetrySource(ctx, false)
+	}
+	return created, err
+}
+
+func (s *Service) create(ctx context.Context, req domain.SaveDataSourceRequest) (domain.DataSource, error) {
 	adapter, ok := s.kinds[req.Kind]
 	if !ok {
 		return domain.DataSource{}, FieldErrors{"kind": FieldUnknown}
@@ -130,8 +150,17 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req domain.PatchData
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	var kind domain.DataSourceKind
+	if s.telemetryMarks != nil {
+		if ds, err := s.store.GetDataSource(ctx, id); err == nil {
+			kind = ds.Kind
+		}
+	}
 	if err := s.store.DeleteDataSource(ctx, id); err != nil {
 		return err
+	}
+	if isSingleton(kind) {
+		s.markTelemetrySource(ctx, true)
 	}
 	s.changed(id)
 	return nil

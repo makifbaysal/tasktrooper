@@ -836,6 +836,16 @@ carries `fields`; read them with `dataSourceFieldErrors(e)`.
   A store kind's list address is the app it reads (`package_name` / `app_id`). An option is
   looked up with its dots as `_` (`dataSourceSchema#optionKey`; `t()` splits keys on dots), so
   Datadog's sites have labels (`kinds.datadog.fields.site.options.datadoghq_com`, …).
+  **`tasktrooper_telemetry`** (server branch `feat/telemetry-native-source`; not drawn yet): label "TaskTrooper
+  Telemetry", capabilities `metrics`, `logs`, `traces`, `errors`, **no fields** — it reads the connection saved in
+  Settings → TaskTrooper Telemetry (`/v1/telemetry/settings`), so the add form has nothing to fill (a hint pointing
+  at that Settings card is all it needs, and it can be disabled while `GET /v1/telemetry/status` says
+  `configured: false`). The server makes the source on its own (name `TaskTrooper Telemetry`) once that connection
+  is saved; deleting it is remembered, and adding it back is `POST /v1/data-sources {kind: "tasktrooper_telemetry"}`.
+  One per install: a second create is 400 `fields: {kind: "duplicate"}` (new field code). Its query language is
+  JSON `{"service", "env"?, "endpoint"?, "metric"?, "quantile"?}` (metric `requests` | `error_ratio` | `errors` |
+  `latency` | `retries` | `dead_letters`; env `*` = every environment); recipe `tasktrooper-telemetry` (params
+  `service`, `env`). While the connection is cleared it verifies `error` with a "not configured" detail.
 - `GET /v1/data-sources` → `{data_sources: DataSource[]}`; `GET /v1/data-sources/{id}` → one
   (`listDataSources`, `getDataSource`). `DataSource` = `{id, kind, name, config, secrets_set,
   status: ok|error|unverified, status_detail, info: {version, detail}, verified_at (null until
