@@ -1042,6 +1042,13 @@ must render with it), `signals` (every key a catalog signal). A query references
   number goes, outside strings (`percentile(duration, $__quantile)` → `95`); `$__rate` and
   `$__interval` are refused (the kind appends SINCE, UNTIL and TIMESERIES). A detect metric is an
   event type (`Transaction`).
+- **Telemetry JSON** (`tasktrooper_telemetry`): `domain.TelemetryQuery`
+  (`{"service", "env", "endpoint", "metric", "quantile"}`), held to the broker rules — a param only
+  in the `service`, `env` or `endpoint` value, escaped for a JSON string. `$__quantile` only as the
+  whole `quantile` value (`"quantile": "$__quantile"` → `"0.99"`); `$__rate` and `$__interval` are
+  refused (telemetry picks its own buckets). A detect metric is `service.name` or
+  `deployment.environment`; the detector probes `service` against `service.name` and `env` against
+  `deployment.environment`.
 
 `applies_to.resource_kind` (a `domain.CloudResourceKind`) says which bound cloud resource the
 recipe fits, and `applies_to.resource_params` which field of that resource's ref fills which
@@ -1085,6 +1092,7 @@ validate.
 | `newrelic-apm` | newrelic | — (detect `Transaction`) | `app` (http.requests, error_ratio, latency; `endpoints` table) |
 | `newrelic-browser` | newrelic | — (detect `PageView`) | `app` (page_views, sessions, js_errors, lcp, inp, cls; `pages` table) |
 | `newrelic-mobile` | newrelic | — (detect `MobileSession`) | `app` (crash_rate, crash_free_users) |
+| `tasktrooper-telemetry` | tasktrooper_telemetry | — (detect `service.name`) | `service`, `env` (default `*` = every environment) (http.requests, error_ratio, latency, queue.consume_rate, process.errors, logs.lines, traces.spans, errors.issues; `endpoints` table) |
 
 **Recipe tables.** A recipe may also declare `tables`, by name: `queues` (the queues view reads
 it), `crashes` (one row per crash or error issue — columns `issue`, `type`, `cause`, `location`,
@@ -2457,6 +2465,39 @@ checkout folder or a sub-project folder; the first repository otherwise, said so
 the **release engineer** (`domain.RoleKeyRelease`) with the `briefs.prodops.telemetry_incident_task` brief; without one it falls
 back to the repository's default assignee and the developer brief. A telemetry incident that resolves resolves the TaskTrooper
 incident (asked about by id, so a page-limited list never closes one by mistake); one a person resolved is not reopened.
+
+**Telemetry as an Operations data source.** Kind `tasktrooper_telemetry` (`adapter/datasource/telemetry`, capabilities
+`metrics`, `logs`, `traces`, `errors`) makes telemetry read like any other source: the console widgets, golden signals, the Logs
+explorer and Errors inbox (`opsquery`, through `logs.lines` / `errors.issues` bindings), traces, deploy impact, deploywatch soak checks,
+alert rules and the runtime agent tools (`query_runtime_logs`, `list_runtime_errors`, `get_deploy_impact`, …) all reach it through
+signal bindings, with no tool of its own.
+
+- **Credentials: one connection.** The kind's schema has no fields and its source stores no URL or key. It reads through
+  `port.TelemetryReader`, which `telemetry.Service` implements (the allowlist, the key injected server-side, the `TelemetryClient`
+  and its `urlguard.HumanConfigured()` policy), so the URL saved in Settings is the only destination and nothing calls our cloud.
+  Wired by `datasource.Service.SetTelemetry(conn, marks)`.
+- **Managed source.** `datasource.Service.SyncTelemetrySource` runs at boot and after every `PUT /v1/telemetry/settings`
+  (`telemetry.Service.OnUpdate`): with the connection configured and no source of the kind, it makes one named
+  `TaskTrooper Telemetry`; an existing one is re-verified (and its cached reads dropped). Deleting it records
+  `app_settings.telemetry_data_source_deleted = true` and it is not made again until a person adds it back
+  (`POST /v1/data-sources {kind: "tasktrooper_telemetry"}`, which clears the mark). The kind is a singleton: a second create answers
+  400 `{kind: "duplicate"}`. Clearing the connection keeps the source and its bindings; it then verifies `error` (not configured).
+- **Reads** (`/api/v1`, every one an allowlisted GET). Telemetry answers fixed windows ending now (`15m`, `30m`, `1h`, `6h`, `24h`,
+  `7d`, buckets 1m … 2h), so a read picks the shortest window reaching back to its start and keeps the points inside `[from, to]`;
+  `Step` is that bucket; a start older than 7 days reads 7 days with a warning. Series: `services/{service}/series` or
+  `…/endpoints/{endpoint}/series` → `requests` = rpm/60 (req/s), `error_ratio` = errorRate×100 (%, null with no traffic),
+  `errors` = rpm×errorRate/60, `latency` = p50/p95/p99 (the nearest at or above the quantile; null with no traffic), `retries` /
+  `dead_letters` (a consumer process's, per second); an unknown service is no data, not a failure. Logs: `logs?service&env&level&q&
+  before&limit` (min severity → `warn,error` etc.; cursor = `nextBefore` ms). Errors: `errors?service&env&status=open&limit`, the
+  most frequent first, `New` when first seen in the window. Traces: `traces?service&env&endpoint&minMs&sort=recent&limit` and
+  `traces/{id}` (span start = trace ts + offset, resource attributes prefixed `resource.`). Endpoints table:
+  `services/{service}/endpoints?range=1h` → `endpoint` ("METHOD /route"), `rpm`, `error_pct`, `p95_ms`, busiest first. Verify:
+  `services?range=1h` (`<n> services reporting in the last hour`); Discover lists `deployment.environment` and `service.name`;
+  `LabelValues` lists `services?range=24h` names or `environments`. Upstream 400 is `bad_query`, 404 not found.
+- **Mapping components.** Recipe `tasktrooper-telemetry` (params `service` = `service.name`, `env` = `deployment.environment`,
+  default `*`). The detector proposes `service` from the service names that best name the component and `env` from the
+  telemetry environment matching the environment being detected (`domain.TelemetryEnvironmentNames`: production ↔
+  production/prod/prd/live, staging ↔ staging/stage/stg/preprod/uat, preview ↔ preview/pr/review, development ↔ development/dev/local).
 
 ## Project model
 
