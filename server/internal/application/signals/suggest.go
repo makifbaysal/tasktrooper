@@ -92,7 +92,7 @@ func (s *Service) Suggest(ctx context.Context, componentID uuid.UUID, env domain
 	var found []domain.SignalBinding
 	var answered []uuid.UUID
 	for _, ds := range l.order {
-		got, ok := s.detectFromInventory(ctx, rd, scope, ds, relevant, names)
+		got, ok := s.detectFromInventory(ctx, rd, scope, ds, relevant, names, env)
 		found = append(found, got...)
 		fromBroker, brokerOK := s.detectFromBroker(ctx, rd, ds, relevant, names)
 		found = append(found, fromBroker...)
@@ -153,7 +153,7 @@ func newSuggestions(found, existing []domain.SignalBinding) []domain.SignalBindi
 
 // detectFromInventory answers false when the source did not answer this
 // time: its discovery, or a label probe, failed.
-func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope string, ds domain.DataSource, relevant map[string]bool, names []string) ([]domain.SignalBinding, bool) {
+func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope string, ds domain.DataSource, relevant map[string]bool, names []string, env domain.DeployEnvironment) ([]domain.SignalBinding, bool) {
 	// A kind that lists nothing (the store kinds) has nothing to detect from,
 	// and answers by not being asked.
 	if !s.sources.CanDiscover(ds.Kind) {
@@ -181,7 +181,7 @@ func (s *Service) detectFromInventory(ctx context.Context, rd *reader, scope str
 		if len(sigs) == 0 {
 			continue
 		}
-		sets, probed := s.paramSets(ctx, rd, ds, r, names)
+		sets, probed := s.paramSets(ctx, rd, ds, r, names, env)
 		answered = answered && probed
 		for _, params := range sets {
 			for _, sig := range sigs {
@@ -305,14 +305,14 @@ func (s *Service) discover(ctx context.Context, rd *reader, scope string, ds dom
 // best name the component. With nothing to go on it answers one empty set,
 // a suggestion that still needs its params; false only when the probe
 // failed.
-func (s *Service) paramSets(ctx context.Context, rd *reader, ds domain.DataSource, r domain.Recipe, names []string) ([]map[string]string, bool) {
+func (s *Service) paramSets(ctx context.Context, rd *reader, ds domain.DataSource, r domain.Recipe, names []string, env domain.DeployEnvironment) ([]map[string]string, bool) {
 	none := []map[string]string{{}}
 	labels := paramLabels(r)
 	if len(labels) == 0 || r.Detect.Metric == "" || len(names) == 0 {
 		return none, true
 	}
 	if s.sources.CanListLabelValues(ds.Kind) {
-		return paramSetsFromValues(ctx, rd, ds, labels, names)
+		return paramSetsFromValues(ctx, rd, ds, labels, names, env)
 	}
 	labelNames := slices.Sorted(maps.Values(labels))
 	labelNames = slices.Compact(labelNames)
