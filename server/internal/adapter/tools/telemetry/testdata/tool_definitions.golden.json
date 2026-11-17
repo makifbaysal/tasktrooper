@@ -2,6 +2,50 @@
   {
     "type": "function",
     "function": {
+      "name": "telemetry_accept_suggestion",
+      "description": "Turn an alert suggestion telemetry's code analysis drafted into a monitor, optionally overriding its threshold, severity or channels. Without user_approved nothing is written: the answer shows the suggestion and exactly what would be sent. Show it to the user, ask, and call again with `user_approved: true` once they said yes.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "channels": {
+            "description": "Replace the drafted notification targets.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "severity": {
+            "description": "Replace the drafted severity.",
+            "enum": [
+              "critical",
+              "warning",
+              "info"
+            ],
+            "type": "string"
+          },
+          "suggestion_id": {
+            "description": "The suggestion id from telemetry_list_monitors.",
+            "type": "string"
+          },
+          "threshold": {
+            "description": "Replace the drafted threshold.",
+            "type": "number"
+          },
+          "user_approved": {
+            "description": "true only after the user said yes to accepting this suggestion in this conversation.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "suggestion_id"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "telemetry_api_get",
       "description": "Read any other query route of the TaskTrooper Telemetry API when the dedicated telemetry tools do not cover it: hosts, Kubernetes, databases, queues, SLOs (kpis), monitors, web and mobile apps, load tests, profiling. Read-only; it refuses anything that is not a data route. The result is JSON as telemetry returns it.",
       "parameters": {
@@ -21,6 +65,56 @@
         },
         "required": [
           "path"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_explain_endpoint",
+      "description": "Why one endpoint got slower or started failing: its own time and each dependency it calls (database, cache, other services) in the window, against a baseline window. The top child that changed is the dependency to blame; a large change in the endpoint's own time points at its own code. No baseline requests means no comparison; retry with baseline 1d or 7d, else say the baseline is missing. Then confirm with telemetry_search_traces on the same endpoint.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline": {
+            "description": "What to compare against: prev (the window just before, the default), or 1d / 7d (the same window a day or a week back) when the problem may be older than the window.",
+            "enum": [
+              "prev",
+              "1d",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "endpoint": {
+            "description": "The endpoint: its id slug from telemetry_get_service's endpoints (for example \"post-v1-charges\"), or \"METHOD /route\" (for example \"POST /v1/charges\"), which is looked up for you.",
+            "type": "string"
+          },
+          "env": {
+            "description": "Deployment environment to read; omit for all.",
+            "type": "string"
+          },
+          "range": {
+            "description": "The window to explain. It must cover the time the problem started.",
+            "enum": [
+              "15m",
+              "30m",
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "service": {
+            "description": "A service name as telemetry reports it (from the incident or telemetry_get_service). Never guess one.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "endpoint"
         ],
         "type": "object"
       }
@@ -50,23 +144,10 @@
     "type": "function",
     "function": {
       "name": "telemetry_get_service",
-      "description": "One service's health in a single call: its error rate, latency and throughput, its endpoints ranked with their ids, its recent deploys and its dependencies, plus, when you pass endpoint_id, the root-cause comparison for that endpoint. Start here for any service, then go narrower with traces, logs and errors.",
+      "description": "One service's health in a single call: its error rate, latency and throughput, its endpoints ranked with their ids, its recent deploys and its dependencies. Start here for any service, then go narrower: telemetry_explain_endpoint for why one endpoint got worse, then traces, logs and errors.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "baseline": {
-            "description": "What to compare the endpoint against for endpoint_id's root-cause analysis. prev (the window before) by default; use 1d or 7d when the problem may be older than the window.",
-            "enum": [
-              "prev",
-              "1d",
-              "7d"
-            ],
-            "type": "string"
-          },
-          "endpoint_id": {
-            "description": "The endpoint id slug from the `endpoints` list of a first call (for example \"post-v1-charges\"), not the route. Only with this set do you get the root-cause comparison (`rca`): which child span or dependency got slower or more error-prone since the baseline.",
-            "type": "string"
-          },
           "env": {
             "description": "Deployment environment to read; omit for all.",
             "type": "string"
@@ -225,6 +306,466 @@
   {
     "type": "function",
     "function": {
+      "name": "telemetry_list_load_tests",
+      "description": "Load tests: the recent runs with their state and result, the scenarios (target, steps, peak load, duration, state draft or ready) and the target domains with whether each is verified. A run only reaches a verified domain, so check here before proposing one, and poll one run by run_id while it is going. Read-only.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "Read this one run: state, live VUs, RPS, p95 and error rate while it runs, and the per-step summary and thresholds when it ends. Give it alone.",
+            "type": "string"
+          },
+          "scenario_id": {
+            "description": "Only the runs of this scenario.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_list_monitors",
+      "description": "The monitors (alert rules) telemetry evaluates, each with its kind, target, condition, severity, channels, state and `source` (agent for the ones an agent created; only those may be replaced by an agent), plus the alert suggestions its code analysis drafted. Read it before proposing a monitor so you do not duplicate one, and take channel targets and suggestion ids from here. Read-only.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "description": "Only the monitors of this endpoint, in the form \"METHOD /route\".",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Only monitors of this kind, for example latency or error_rate.",
+            "type": "string"
+          },
+          "service": {
+            "description": "Only the monitors of this service.",
+            "type": "string"
+          },
+          "suggestions": {
+            "description": "Alert suggestions from telemetry's code analysis to include: proposed (the default), all, or none.",
+            "enum": [
+              "none",
+              "proposed",
+              "all"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_list_slos",
+      "description": "The SLOs (telemetry calls them KPIs): each one's objective, its current SLI, how much error budget is left and the burn rates of its alert rules. Read it before proposing an SLO, so you do not propose one that exists, and to answer \"is this service meeting its objectives\". Read-only.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "service": {
+            "description": "Only the SLOs of this service (or web/mobile app) name.",
+            "type": "string"
+          },
+          "slo_id": {
+            "description": "Read this one SLO in full. Give it alone.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_propose_monitor",
+      "description": "Propose a monitor (an alert rule) in the connected telemetry. Without user_approved nothing is written: the answer replays the monitor over past data (`preview`: how often it would have fired and whether it fires now) and shows exactly what would be sent. Check telemetry_list_monitors first so you do not duplicate one; a monitor that would have fired 0 times on a noisy metric, or many times a day, has the wrong threshold, so fix it and preview again. Then show the user the monitor and its preview, ask, and call again with `user_approved: true` once they said yes. It is created with source agent.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "monitor": {
+            "additionalProperties": false,
+            "description": "The monitor as telemetry takes it.",
+            "properties": {
+              "channels": {
+                "description": "Notification targets copied from an existing monitor; an empty list opens incidents without notifying.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "condition": {
+                "additionalProperties": false,
+                "description": "When it fires. Rates are fractions (2% = 0.02), latency is in ms.",
+                "properties": {
+                  "forMin": {
+                    "description": "Minutes the condition must hold before it fires; 5 is a good default.",
+                    "type": "integer"
+                  },
+                  "minRequests": {
+                    "description": "Skip windows with fewer requests, so two requests cannot page anyone.",
+                    "type": "number"
+                  },
+                  "op": {
+                    "enum": [
+                      "\u003e",
+                      "\u003e=",
+                      "\u003c",
+                      "\u003c="
+                    ],
+                    "type": "string"
+                  },
+                  "renotifyMin": {
+                    "type": "integer"
+                  },
+                  "threshold": {
+                    "type": "number"
+                  },
+                  "window": {
+                    "description": "The window the value is measured over (default 5m, anomaly 15m).",
+                    "enum": [
+                      "1m",
+                      "5m",
+                      "10m",
+                      "15m",
+                      "30m",
+                      "1h"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "op",
+                  "threshold"
+                ],
+                "type": "object"
+              },
+              "kind": {
+                "description": "What it watches. latency, error_rate, throughput and apdex need target.service (and target.endpoint for one endpoint); the others are rarer, copy their query shape from an existing monitor.",
+                "enum": [
+                  "latency",
+                  "error_rate",
+                  "throughput",
+                  "apdex",
+                  "metric_threshold",
+                  "anomaly",
+                  "error_new",
+                  "log_count",
+                  "log_pattern",
+                  "job_missed",
+                  "consumer_lag",
+                  "dlq",
+                  "rum_vital",
+                  "crash_rate",
+                  "composite",
+                  "infra",
+                  "faas",
+                  "llm"
+                ],
+                "type": "string"
+              },
+              "name": {
+                "description": "A short human name, for example \"orders-api p95 latency\".",
+                "type": "string"
+              },
+              "query": {
+                "description": "Kind specific: latency {percentile: p50|p95|p99}; error_rate {statusMin: 500}; throughput {direction: drop|spike|change}; apdex {tMs: 500}; anomaly {metric: error_rate|p95|rpm, direction: up|down|both}; log_count {minSeverity: error, contains?}.",
+                "type": "object"
+              },
+              "queue": {
+                "type": "object"
+              },
+              "severity": {
+                "description": "critical pages someone; warning and info do not.",
+                "enum": [
+                  "critical",
+                  "warning",
+                  "info"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "description": "active (the default) or draft, saved but not evaluated.",
+                "enum": [
+                  "active",
+                  "draft"
+                ],
+                "type": "string"
+              },
+              "target": {
+                "additionalProperties": false,
+                "description": "service from telemetry, endpoint as \"METHOD /route\" (omit for the whole service), process for job_missed.",
+                "properties": {
+                  "endpoint": {
+                    "type": "string"
+                  },
+                  "process": {
+                    "type": "string"
+                  },
+                  "service": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "condition",
+              "severity"
+            ],
+            "type": "object"
+          },
+          "preview_range": {
+            "description": "How much history the preview replays the monitor over; 24h by default, 7d for a rare signal.",
+            "enum": [
+              "15m",
+              "30m",
+              "1h",
+              "6h",
+              "24h",
+              "7d"
+            ],
+            "type": "string"
+          },
+          "replace_id": {
+            "description": "Replace this monitor instead of creating one. Only a monitor an agent created (source agent) can be replaced.",
+            "type": "string"
+          },
+          "user_approved": {
+            "description": "true only after the user said yes to this exact monitor in this conversation.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "monitor"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_propose_slo",
+      "description": "Propose an SLO with burn-rate alerts in the connected telemetry. Without user_approved nothing is written and the answer shows exactly what would be sent. Read telemetry_list_slos first, pick an objective the service meets today (telemetry_get_service), show the user the SLO, ask, and call again with `user_approved: true` once they said yes. It is created with source agent.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "replace_id": {
+            "description": "Replace this SLO instead of creating one. Only an SLO an agent created (source agent) can be replaced.",
+            "type": "string"
+          },
+          "slo": {
+            "additionalProperties": false,
+            "description": "The SLO (a telemetry KPI) as telemetry takes it.",
+            "properties": {
+              "alerts": {
+                "description": "Usually two burn-rate rules: fast (longWindow 1h, shortWindow 5m, threshold 14.4, critical) and slow (6h / 30m, 6, warning).",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "channels": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "kind": {
+                      "enum": [
+                        "burn_rate",
+                        "sli_below"
+                      ],
+                      "type": "string"
+                    },
+                    "longWindow": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "enum": [
+                        "critical",
+                        "warning",
+                        "info"
+                      ],
+                      "type": "string"
+                    },
+                    "shortWindow": {
+                      "type": "string"
+                    },
+                    "threshold": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "longWindow",
+                    "threshold",
+                    "severity"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "description": {
+                "description": "One sentence: what a good event is and why it matters.",
+                "type": "string"
+              },
+              "good": {
+                "additionalProperties": false,
+                "description": "The good-event rule; thresholdMs is required for a latency SLO.",
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "metric": {
+                    "type": "string"
+                  },
+                  "noError": {
+                    "type": "boolean"
+                  },
+                  "statusBelow": {
+                    "type": "integer"
+                  },
+                  "thresholdMs": {
+                    "type": "number"
+                  }
+                },
+                "type": "object"
+              },
+              "name": {
+                "description": "The user-facing outcome, for example \"Checkout succeeds\".",
+                "type": "string"
+              },
+              "objective": {
+                "description": "The share of good events, between 0 and 1 exclusive, for example 0.99.",
+                "type": "number"
+              },
+              "owner": {
+                "description": "The team or person who owns it, free text.",
+                "type": "string"
+              },
+              "sli": {
+                "description": "latency (fast and not a 5xx), availability, or success_rate (not a 5xx).",
+                "enum": [
+                  "latency",
+                  "availability",
+                  "success_rate"
+                ],
+                "type": "string"
+              },
+              "target": {
+                "additionalProperties": false,
+                "description": "kind endpoint, page, journey or app_start; serviceId the service or app name; ref \"METHOD /route\" for an endpoint, the path for a page.",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "endpoint",
+                      "page",
+                      "journey",
+                      "app_start"
+                    ],
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
+                  "serviceId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "serviceId",
+                  "ref"
+                ],
+                "type": "object"
+              },
+              "window": {
+                "description": "7d or 28d.",
+                "enum": [
+                  "7d",
+                  "28d"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "target",
+              "sli",
+              "objective",
+              "window"
+            ],
+            "type": "object"
+          },
+          "user_approved": {
+            "description": "true only after the user said yes to this exact SLO in this conversation.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "slo"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_run_load_test",
+      "description": "Run a load test: it sends real traffic to the target. The target must be a domain the user verified in telemetry (Load tests, Domains), and staging is the default. Without user_approved nothing runs: the answer shows the target, the load, the duration and exactly what would be sent. Tell the user those, ask, and call again with `user_approved: true` once they said yes. Then poll telemetry_list_load_tests with the run id every 15 to 30 seconds until it is passed, failed, aborted or error; telemetry_stop_load_test stops it at once.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "environment": {
+            "description": "staging (the default) or production. A target that is this repository's production is refused unless this says production, which you pass only when the user explicitly asked to load production.",
+            "enum": [
+              "staging",
+              "production"
+            ],
+            "type": "string"
+          },
+          "scenario": {
+            "additionalProperties": false,
+            "description": "Or create a new scenario and run it.",
+            "properties": {
+              "name": {
+                "description": "For example \"checkout baseline (agent)\".",
+                "type": "string"
+              },
+              "spec": {
+                "description": "The scenario spec. Minimal: {target: \"https://staging.example.com\", mode: \"vus\", levels: [{name: \"warm\", ramp: 30, hold: 60, target: 5}, {name: \"steady\", ramp: 30, hold: 300, target: 20}], steps: [\"GET /v1/products\", \"POST /v1/orders\"], weights: [80, 20], thinkTime: 1, thresholds: [\"http_req_failed rate \u003c 1%\", \"http_req_duration p(95) \u003c 500 ms\"]}. Ramps and holds are seconds. Without a gate it aborts on its own at a 50% error rate or a 10 s p95.",
+                "type": "object"
+              }
+            },
+            "required": [
+              "name",
+              "spec"
+            ],
+            "type": "object"
+          },
+          "scenario_id": {
+            "description": "Run this existing scenario (from telemetry_list_load_tests). A draft must be reviewed by the user first.",
+            "type": "string"
+          },
+          "user_approved": {
+            "description": "true only after the user said yes to running this load now, against this target, at this load and for this long.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "telemetry_search_logs",
       "description": "Search the production logs TaskTrooper Telemetry collected, newest first. Narrow by service, level and q or trace_id; an unfiltered week of logs is noise. Messages arrive with emails, IPs and keys masked, so a masked value is not a bug.",
       "parameters": {
@@ -342,6 +883,26 @@
             "type": "string"
           }
         },
+        "type": "object"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "telemetry_stop_load_test",
+      "description": "Stop a queued or running load test at once. It needs no approval because it only takes load away: stop a run as soon as the target degrades beyond what the user agreed to, or when the user asks.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "The run to stop, from telemetry_run_load_test or telemetry_list_load_tests.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
         "type": "object"
       }
     }

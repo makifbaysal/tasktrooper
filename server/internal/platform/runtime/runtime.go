@@ -2400,7 +2400,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// TaskTrooper Telemetry: its alerts become incidents the release
 			// engineer works, and its data reaches the agents as read tools.
 			if telemetrySvc != nil {
-				for _, tool := range telemetrytools.NewExecutors(&telemetrytools.ToolKit{Reader: telemetrySvc}) {
+				for _, tool := range telemetrytools.NewExecutors(&telemetrytools.ToolKit{Reader: telemetrySvc, Writer: telemetrySvc, Targets: deploySvc}) {
 					e.reg.Register(tool)
 				}
 				telemetrySync := telemetryapp.NewIncidentSync(telemetrySvc, prodOpsSvc, repositorySvc)

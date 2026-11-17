@@ -41,6 +41,9 @@ var (
 		"finish_release", "watch_release", "record_local_deploy", "start_task_preview", "run_smoke_checks",
 		"telemetry_api_get", "telemetry_get_service", "telemetry_list_errors", "telemetry_search_logs",
 		"telemetry_get_incident", "telemetry_list_deploys", "telemetry_list_incidents", "telemetry_search_traces",
+		"telemetry_explain_endpoint", "telemetry_list_slos", "telemetry_list_monitors", "telemetry_list_load_tests",
+		"telemetry_propose_monitor", "telemetry_propose_slo", "telemetry_accept_suggestion", "telemetry_run_load_test",
+		"telemetry_stop_load_test",
 		"query_runtime_logs", "get_deploy_logs", "list_deployments", "list_runtime_errors", "get_environment")
 	browserActions = set("browser_navigate", "browser_click", "browser_fill")
 	deviceActions  = set("mobile_tap", "mobile_swipe", "mobile_rotate", "mobile_type_text", "mobile_launch_app",
