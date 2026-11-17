@@ -526,10 +526,12 @@ The product's screens are read through the app server's proxy (`.ai/api-spec.md`
 | `hooks/useTelemetryQuery`, `TelemetryQueryView` | One proxied read (30 s poll, console Refresh, last answer kept while loading); the view draws loading / error / empty. A `telemetry_not_configured` answer shows the connect guidance. |
 | `hooks/useTelemetryScope` | The console's window rounded to the product's (`telemetryRange`) plus the product's own environment filter in `?tenv=` (`TelemetryEnvSelect`); hides the top bar's fixed environment picker. |
 | `pages/ops/telemetry/*` | Services, Service, Endpoints, Endpoint (+ `RcaPanel`), Traces, Trace, Logs, Errors, Incidents, Monitors, Deploys, SLOs. |
+| `pages/ops/telemetry/*` (second wave) | Overview (the group's landing: RED via `RedCharts` on `overview/series`, open incidents, unhealthy services, SLOs at risk, latest deploys), Service map (`ServiceMapGraph`: tier columns + SVG edges, no graph library; the calls also as a table), Infrastructure (Hosts/Host, Kubernetes/Cluster/Pod, Databases with a query drawer, Queues with a lag drawer, Serverless/Function), Digital experience (Apps/App with `VitalTile`, Replays/Replay as a timeline: no rrweb player in this bundle), Performance (Profiling: top functions + `FlameGraph` icicle, LLM monitoring (the product's `ai/*`, not the app's own Usage page), Load tests/Run, read-only). Types and helpers in `lib/telemetryViews`. |
+| `operations/sources/TelemetrySourceHint` | The `tasktrooper_telemetry` data source kind has no fields: its add form shows this hint linking to `/settings/telemetry` and keeps Save disabled while the connection is not configured; a second one is 400 `fields.kind = duplicate` (`operations.sources.errors.byField.kind.duplicate`). |
 | Reused console parts | `TimeSeriesChart` (RED charts, deploy markers), `Sparkline`, `VolumeHistogram`, `LogTable` + `SeverityPill` (logs go through `lib/telemetryHub#toLogEntries`), `TraceWaterfall` / `SpanTable` / `SpanDetail` (a product trace goes through `toConsoleTrace` and `buildWaterfall`), `DetailPanel`, `FacetChips`, `HealthSquare`. |
 
 Read-only by design: acknowledging incidents, editing monitors and SLOs stay in the product. Strings live in `locales/*/telemetryHub.ts`
-(`telemetryHub.*`); the nav labels of the group are `telemetryHub.nav` (`opsNavigation#navItemLabelKey`).
+(`telemetryHub.*`) and `locales/*/telemetryViews.ts` (`telemetryViews.*`, the second wave); the nav labels are `telemetryHub.nav.items`, the groups `telemetryHub.nav.group` and `telemetryHub.nav.groups.{telInfra,telApps,telPerformance}` (`opsNavigation#navItemLabelKey`, `navGroupLabelKey`).
 
 ## Standard building blocks (use these, don't reinvent)
 

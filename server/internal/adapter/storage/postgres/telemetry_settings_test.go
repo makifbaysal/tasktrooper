@@ -60,3 +60,30 @@ func TestTelemetrySettingsKeepsTheKeyEncryptedAndHonoursNilAndEmpty(t *testing.T
 	u, _, _ = store.TelemetrySettings(ctx)
 	require.Empty(t, u)
 }
+
+func TestTelemetrySourceDeletedMark(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping embedded postgres integration test in short mode")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pg, err := newTestDatabase(ctx)
+	require.NoError(t, err)
+	defer pg.Stop()
+	pool, err := pgxpool.New(ctx, pg.DSN())
+	require.NoError(t, err)
+	defer pool.Close()
+	store := postgres.NewSettingsStore(postgres.NewDB(pool), "./data/workspaces", "en", false)
+
+	deleted, err := store.TelemetrySourceDeleted(ctx)
+	require.NoError(t, err)
+	require.False(t, deleted)
+	require.NoError(t, store.SetTelemetrySourceDeleted(ctx, true))
+	deleted, err = store.TelemetrySourceDeleted(ctx)
+	require.NoError(t, err)
+	require.True(t, deleted)
+	require.NoError(t, store.SetTelemetrySourceDeleted(ctx, false))
+	deleted, err = store.TelemetrySourceDeleted(ctx)
+	require.NoError(t, err)
+	require.False(t, deleted)
+}

@@ -1,5 +1,16 @@
 import {
   Activity,
+  AppWindow,
+  Boxes,
+  Film,
+  Flame,
+  HardDrive,
+  Layers,
+  LayoutDashboard,
+  Sparkles,
+  Timer,
+  Waypoints,
+  Zap,
   BellRing,
   Bug,
   Gauge,
@@ -45,9 +56,21 @@ export type OpsNavId =
   | "telIncidents"
   | "telMonitors"
   | "telDeploys"
-  | "telSlo";
+  | "telSlo"
+  | "telOverview"
+  | "telMap"
+  | "telHosts"
+  | "telKubernetes"
+  | "telDatabases"
+  | "telQueues"
+  | "telServerless"
+  | "telApps"
+  | "telReplays"
+  | "telProfiling"
+  | "telLlm"
+  | "telLoadTests";
 
-export type OpsNavGroupId = "explore" | "monitor" | "telemetry" | "settings";
+export type OpsNavGroupId = "explore" | "monitor" | "telemetry" | "telInfra" | "telApps" | "telPerformance" | "settings";
 
 export interface OpsNavItem {
   id: OpsNavId;
@@ -84,6 +107,8 @@ export const OPS_NAV: OpsNavGroup[] = [
   {
     id: "telemetry",
     items: [
+      { id: "telOverview", to: "/operations/telemetry/overview", icon: LayoutDashboard },
+      { id: "telMap", to: "/operations/telemetry/map", icon: Waypoints },
       { id: "telServices", to: "/operations/telemetry/services", icon: Activity },
       { id: "telEndpoints", to: "/operations/telemetry/endpoints", icon: Network },
       { id: "telTraces", to: "/operations/telemetry/traces", icon: RouteIcon },
@@ -93,6 +118,31 @@ export const OPS_NAV: OpsNavGroup[] = [
       { id: "telMonitors", to: "/operations/telemetry/monitors", icon: Gauge },
       { id: "telDeploys", to: "/operations/telemetry/deploys", icon: Rocket },
       { id: "telSlo", to: "/operations/telemetry/slo", icon: Target },
+    ],
+  },
+  {
+    id: "telInfra",
+    items: [
+      { id: "telHosts", to: "/operations/telemetry/infra/hosts", icon: HardDrive },
+      { id: "telKubernetes", to: "/operations/telemetry/infra/kubernetes", icon: Boxes },
+      { id: "telDatabases", to: "/operations/telemetry/infra/databases", icon: Database },
+      { id: "telQueues", to: "/operations/telemetry/infra/queues", icon: Layers },
+      { id: "telServerless", to: "/operations/telemetry/infra/serverless", icon: Zap },
+    ],
+  },
+  {
+    id: "telApps",
+    items: [
+      { id: "telApps", to: "/operations/telemetry/apps", icon: AppWindow },
+      { id: "telReplays", to: "/operations/telemetry/replays", icon: Film },
+    ],
+  },
+  {
+    id: "telPerformance",
+    items: [
+      { id: "telProfiling", to: "/operations/telemetry/profiling", icon: Flame },
+      { id: "telLlm", to: "/operations/telemetry/llm", icon: Sparkles },
+      { id: "telLoadTests", to: "/operations/telemetry/load-tests", icon: Timer },
     ],
   },
   {
@@ -133,7 +183,8 @@ export function navItemLabelKey(id: OpsNavId): string {
 }
 
 export function navGroupLabelKey(id: OpsNavGroupId): string {
-  return id === "telemetry" ? "telemetryHub.nav.group" : `operations.shell.groups.${id}`;
+  if (id === "telemetry") return "telemetryHub.nav.group";
+  return id.startsWith(TELEMETRY_NAV_PREFIX) ? `telemetryHub.nav.groups.${id}` : `operations.shell.groups.${id}`;
 }
 
 export function navGroupOf(id: OpsNavId): OpsNavGroupId {

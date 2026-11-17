@@ -836,6 +836,16 @@ carries `fields`; read them with `dataSourceFieldErrors(e)`.
   A store kind's list address is the app it reads (`package_name` / `app_id`). An option is
   looked up with its dots as `_` (`dataSourceSchema#optionKey`; `t()` splits keys on dots), so
   Datadog's sites have labels (`kinds.datadog.fields.site.options.datadoghq_com`, …).
+  **`tasktrooper_telemetry`** (server branch `feat/telemetry-native-source`; not drawn yet): label "TaskTrooper
+  Telemetry", capabilities `metrics`, `logs`, `traces`, `errors`, **no fields** — it reads the connection saved in
+  Settings → TaskTrooper Telemetry (`/v1/telemetry/settings`), so the add form has nothing to fill (a hint pointing
+  at that Settings card is all it needs, and it can be disabled while `GET /v1/telemetry/status` says
+  `configured: false`). The server makes the source on its own (name `TaskTrooper Telemetry`) once that connection
+  is saved; deleting it is remembered, and adding it back is `POST /v1/data-sources {kind: "tasktrooper_telemetry"}`.
+  One per install: a second create is 400 `fields: {kind: "duplicate"}` (new field code). Its query language is
+  JSON `{"service", "env"?, "endpoint"?, "metric"?, "quantile"?}` (metric `requests` | `error_ratio` | `errors` |
+  `latency` | `retries` | `dead_letters`; env `*` = every environment); recipe `tasktrooper-telemetry` (params
+  `service`, `env`). While the connection is cleared it verifies `error` with a "not configured" detail.
 - `GET /v1/data-sources` → `{data_sources: DataSource[]}`; `GET /v1/data-sources/{id}` → one
   (`listDataSources`, `getDataSource`). `DataSource` = `{id, kind, name, config, secrets_set,
   status: ok|error|unverified, status_detail, info: {version, detail}, verified_at (null until
@@ -1563,7 +1573,7 @@ reaches this bundle.
 
 The paths the screens read (below `/api/v1`): `services`, `services/{name}` (+ `/series`, `/endpoints`, `/dependencies`,
 `/deploys`, `/endpoints/{id}` (+ `/series`, `/rca`)), `environments`, `traces`, `traces/{id}`, `logs`, `logs/series`,
-`errors`, `errors/{fingerprint}`, `incidents`, `incidents/{id}/events`, `monitors`, `deploys`, `kpis`. The product answers only the
+`errors`, `errors/{fingerprint}`, `incidents`, `incidents/{id}/events`, `monitors`, `deploys`, `kpis`. The second wave adds `overview/series`, `service-map`, `infra/hosts` (+ `/{host}`), `infra/k8s/clusters` (+ `/{cluster}`), `infra/k8s/workloads`, `infra/k8s/pods` (+ `/{uid}`), `infra/k8s/events`, `infra/databases` (+ `/{id}/queries`), `infra/clusters`, `infra/clusters/{id}/groups/{group}/lag`, `infra/groups`, `infra/topics`, `serverless/summary`, `serverless/functions` (+ `/{id}`), `apps/{app}/summary|series|pages|sessions|errors|app-starts`, `replays` (+ `/{sessionId}`), `profiles/types|top|flamegraph|series`, `ai/overview`, `ai/calls`, `loadtests/scenarios`, `loadtests/runs` (+ `/{id}`, `/{id}/series`). Every root is already in the server allowlist; nothing here writes. The product answers only the
 windows `15m 30m 1h 6h 24h 7d`: the console's picks round up (`lib/telemetryHub#telemetryRange`).
 
 ## Audience research (Audience screen)

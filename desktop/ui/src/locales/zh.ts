@@ -24,6 +24,7 @@ import { audienceHub } from "@/locales/zh/audienceHub";
 import { audienceReportKinds } from "@/locales/zh/audienceReportKinds";
 import { audienceStudy } from "@/locales/zh/audienceStudy";
 import { telemetryHub } from "@/locales/zh/telemetryHub";
+import { telemetryViews } from "@/locales/zh/telemetryViews";
 import { setup } from "@/locales/zh/setup";
 import { remoteAccess } from "@/locales/zh/remoteAccess";
 import { runTrace } from "@/locales/zh/runTrace";
@@ -285,6 +286,7 @@ export const zh: Dict = {
   audienceReportKinds,
   audienceStudy,
   telemetryHub,
+  telemetryViews,
   setup,
   remoteAccess,
   runTrace,

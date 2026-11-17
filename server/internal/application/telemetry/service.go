@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,9 @@ var (
 	ErrPathNotAllowed = errors.New("telemetry path is not allowed")
 	ErrUnauthorized   = errors.New("telemetry rejected the API key")
 	ErrInvalidURL     = errors.New("telemetry URL must be an http(s) URL")
+	// ErrNotOwned refuses an agent's change to a monitor or KPI an agent did
+	// not create.
+	ErrNotOwned = errors.New("telemetry record was not created by an agent")
 )
 
 const statusTTL = 15 * time.Second
@@ -39,6 +43,8 @@ type Service struct {
 
 	mu     sync.Mutex
 	status map[string]cachedStatus
+
+	updated []func(ctx context.Context)
 }
 
 type cachedStatus struct {
@@ -99,7 +105,24 @@ func (s *Service) Update(ctx context.Context, baseURL string, apiKey *string) (S
 		return Settings{}, err
 	}
 	s.forgetStatus(ctx)
+	for _, fn := range s.updateObservers() {
+		go fn(context.WithoutCancel(ctx))
+	}
 	return s.Settings(ctx)
+}
+
+// OnUpdate registers fn to run, in its own goroutine, after every saved
+// change of the connection: the telemetry data source follows it.
+func (s *Service) OnUpdate(fn func(ctx context.Context)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updated = append(s.updated, fn)
+}
+
+func (s *Service) updateObservers() []func(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.updated)
 }
 
 // NormalizeBaseURL trims, drops a trailing slash and requires http(s) with a

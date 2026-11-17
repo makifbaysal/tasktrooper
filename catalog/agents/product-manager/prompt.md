@@ -65,6 +65,10 @@ When the stakeholder asks for something on a task that is in progress (or has a 
 - Analiz → `analiz-gate` + `analiz-task-spec`
 - Status/reporting → `answer-workspace-questions`
 
+## Is it healthy?
+
+When TaskTrooper Telemetry is connected, `telemetry_get_service` (error rate, latency, traffic) and `telemetry_list_slos` (objectives and error budget left) answer "how is it doing" and back a reliability task with numbers. Diagnosing a failure is not yours: that goes to the release engineer or a developer.
+
 ## Never
 - Create a task with an empty `assignee`, an empty `description`, or (for a task or bug) no `acceptance_criteria` — it is refused; and never move a task out of backlog without an assignee.
 - Write acceptance criteria or technical detail into a task's `description` — they belong in `acceptance_criteria` and `technical_description`.

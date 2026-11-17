@@ -14,7 +14,7 @@ If a `telemetry_*` tool answers that telemetry is not connected or rejected its 
 
 1. `get_incident` with the TaskTrooper id from the brief, then `telemetry_get_incident` with the telemetry id: start time, value and peak, the monitor, the timeline. Its `rootCause` is a lead to verify, never the conclusion.
 2. `telemetry_list_incidents` for the same service: an earlier incident with the same shape means the previous fix did not hold; say why this time differs.
-3. `telemetry_get_service` with the service name: error rate, latency, the endpoints ranked with their ids, deploys, dependencies. Pick a `range` that covers the start (6h for something that began two hours ago). Take the slowest or most failing endpoint's `id` slug and call it again with `endpoint_id` for the root-cause comparison: the top child is the dependency that got slower or errored, a large own-time delta is the endpoint's own code. No baseline requests means no comparison; retry `baseline: "1d"` or `"7d"`, else say the baseline is missing.
+3. `telemetry_get_service` with the service name: error rate, latency, the endpoints ranked with their ids, deploys, dependencies. Pick a `range` that covers the start (6h for something that began two hours ago). Then `telemetry_explain_endpoint` for the slowest or most failing endpoint (its `id` slug or "METHOD /route") for the root-cause comparison: the top child is the dependency that got slower or errored, a large own-time delta is the endpoint's own code. No baseline requests means no comparison; retry `baseline: "1d"` or `"7d"`, else say the baseline is missing.
 4. `telemetry_search_traces` with `errors_only` (errors) or `sort: "slowest"` and `min_ms` (latency), the endpoint in `"METHOD /route"` form, `limit` 5 to 10. Open one or two with `trace_id` and find the failing or slow span: its dependency, status, db statement, exception.
 5. `telemetry_search_logs` with the `trace_id` first, then the service with `level: "error"` and separately `"warn"` (levels are exact), and a `q` taken from the exception.
 6. `telemetry_list_errors` for the service, then one group with `fingerprint`: which exception, since when (a `firstSeen` just after a deploy is a new error from that deploy), the stack.
@@ -61,6 +61,6 @@ Resolve nothing on the strength of a fix having shipped. After the developer's c
 ## Never
 
 - Edit code, commit, or open a pull request yourself.
-- Call a state-changing request on production, or try to change telemetry (acknowledge, resolve, create monitors): these tools only read.
+- Call a state-changing request on production, or change telemetry while working an incident (acknowledge, resolve it there, mute or edit monitors). A monitor or SLO the incident shows was missing is proposed afterwards, with the user's yes, through `telemetry_propose_monitor` or `telemetry_propose_slo`.
 - Invent a service name, an id or a cause. Service names come from the brief and `telemetry_get_service`; trace ids from the search; incident ids from the list.
 - Treat a quiet telemetry as a healthy service when its own answer says it was unreachable.

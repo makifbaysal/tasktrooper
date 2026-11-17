@@ -30,6 +30,11 @@ type fakeReader struct {
 	answers map[string]string
 	status  map[string]int
 	err     error
+
+	writes       []writeCall
+	writeAnswers map[string]string
+	writeStatus  map[string]int
+	writeErr     error
 }
 
 func (f *fakeReader) Get(_ context.Context, rel string, q url.Values) (port.TelemetryResponse, error) {
@@ -48,9 +53,38 @@ func (f *fakeReader) Get(_ context.Context, rel string, q url.Values) (port.Tele
 	return port.TelemetryResponse{Status: status, Body: []byte(body)}, nil
 }
 
+type writeCall struct {
+	method, path string
+	query        url.Values
+	body         string
+}
+
+// Write answers from writes["METHOD path"] (default `{}`) and status the same way.
+func (f *fakeReader) Write(_ context.Context, method, rel string, q url.Values, body any) (port.TelemetryResponse, error) {
+	raw := ""
+	if body != nil {
+		b, _ := json.Marshal(body)
+		raw = string(b)
+	}
+	f.writes = append(f.writes, writeCall{method, rel, q, raw})
+	if f.writeErr != nil {
+		return port.TelemetryResponse{}, f.writeErr
+	}
+	key := method + " " + rel
+	status := 200
+	if s, ok := f.writeStatus[key]; ok {
+		status = s
+	}
+	out, ok := f.writeAnswers[key]
+	if !ok {
+		out = `{}`
+	}
+	return port.TelemetryResponse{Status: status, Body: []byte(out)}, nil
+}
+
 func newKit() (*ToolKit, *fakeReader) {
-	r := &fakeReader{answers: map[string]string{}, status: map[string]int{}}
-	return &ToolKit{Reader: r}, r
+	r := &fakeReader{answers: map[string]string{}, status: map[string]int{}, writeAnswers: map[string]string{}, writeStatus: map[string]int{}}
+	return &ToolKit{Reader: r, Writer: r}, r
 }
 
 func run(t *testing.T, kit *ToolKit, name, args string) domain.ToolResult {
@@ -67,6 +101,8 @@ func run(t *testing.T, kit *ToolKit, name, args string) domain.ToolResult {
 func TestNewExecutorsNeedsAReader(t *testing.T) {
 	assert.Nil(t, NewExecutors(nil))
 	assert.Nil(t, NewExecutors(&ToolKit{}))
+	readOnly := NewExecutors(&ToolKit{Reader: &fakeReader{}})
+	assert.Len(t, readOnly, len(ReadToolNames), "the write tools need a Writer")
 	kit, _ := newKit()
 	names := []string{}
 	for _, ex := range NewExecutors(kit) {
@@ -97,25 +133,22 @@ func TestGetIncidentRequiresAnId(t *testing.T) {
 	assert.True(t, res.IsError)
 }
 
-func TestGetServiceBundlesHealthEndpointsDeploysAndRCA(t *testing.T) {
+func TestGetServiceBundlesHealthEndpointsDeploysAndDependencies(t *testing.T) {
 	kit, r := newKit()
 	r.answers["services/orders-api"] = `{"name":"orders-api","errorRate":0.12}`
 	r.answers["services/orders-api/endpoints"] = `[{"id":"post-orders","route":"POST /orders"}]`
 	r.answers["services/orders-api/deploys"] = `[{"version":"1.4.2"}]`
-	r.answers["services/orders-api/endpoints/post-orders/rca"] = `{"children":[{"name":"db"}]}`
 
-	res := run(t, kit, getServiceToolName, `{"service":"orders-api","range":"6h","endpoint_id":"post-orders","baseline":"1d"}`)
+	res := run(t, kit, getServiceToolName, `{"service":"orders-api","range":"6h"}`)
 	require.False(t, res.IsError, res.Content)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal([]byte(res.Content), &out))
-	for _, k := range []string{"service", "endpoints", "deploys", "dependencies", "rca"} {
+	for _, k := range []string{"service", "endpoints", "deploys", "dependencies"} {
 		assert.Contains(t, out, k)
 	}
 	for _, c := range r.calls {
-		if strings.HasSuffix(c.path, "/rca") {
-			assert.Equal(t, "1d", c.query.Get("baseline"))
-			assert.Equal(t, "6h", c.query.Get("range"))
-		}
+		assert.False(t, strings.HasSuffix(c.path, "/rca"), "the root-cause comparison is telemetry_explain_endpoint's")
+		assert.Equal(t, "6h", c.query.Get("range"))
 	}
 }
 

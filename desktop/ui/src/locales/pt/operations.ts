@@ -1142,6 +1142,9 @@ export const operations = {
       connectCloudAccount: "Conecte uma em Configurações → Integrações",
       cloudAccountPlaceholder: "Escolha uma conta {provider}",
       namePlaceholderCloud: "Se vazio, o tipo e o nome da conta",
+      telemetryHint: "Esta fonte usa a conexão salva em Configurações → TaskTrooper Telemetry. Não há nada para preencher aqui.",
+      telemetryNotConfigured: "Conecte primeiro o TaskTrooper Telemetry em Configurações; esta fonte lê essa conexão.",
+      openTelemetrySettings: "Abrir configurações de telemetria",
     },
     errors: {
       required: "Obrigatório.",
@@ -1154,6 +1157,9 @@ export const operations = {
       secrets_required:
         "Credenciais salvas não são levadas para um endereço novo. Digite-as de novo ou remova-as.",
       byField: {
+        kind: {
+          duplicate: "O TaskTrooper Telemetry já é uma fonte de dados. Só pode haver uma.",
+        },
         bootstrap_servers: {
           invalid: "Informe os brokers como host:porta, separados por vírgula, por exemplo broker-1:9092,broker-2:9092, e não uma URL.",
           not_permitted: "Um desses brokers não é um endereço permitido. Endereços link-local e de metadados de nuvem são sempre recusados.",
@@ -1245,6 +1251,10 @@ export const operations = {
       },
     },
     kinds: {
+      tasktrooper_telemetry: {
+        label: "TaskTrooper Telemetry",
+        description: "Serviços, traces, logs e erros do seu servidor TaskTrooper Telemetry, pela conexão salva em Configurações.",
+      },
       prometheus: {
         label: "Compatível com Prometheus",
         description:

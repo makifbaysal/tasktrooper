@@ -972,6 +972,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 	var githubAuth *githubauth.Service
 	var issueSyncSettingsStore *pgstore.SettingsStore
 	var telemetrySvc *telemetryapp.Service
+	var telemetryMarks port.TelemetrySourceMarkStore
 	var llmProviderStore port.LLMProviderStore
 	var llmEndpointStore port.LLMEndpointStore
 
@@ -1053,6 +1054,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				Store:  pgSettings,
 				Client: telemetryadapter.New(urlguard.HumanConfigured()),
 			})
+			telemetryMarks = pgSettings
 			// Every GitHub caller reads its token through this, so a GitHub
 			// App connection renews itself without any of them knowing.
 			githubAuth = githubauth.New(pgSettings, pgSettings, githubapi.DeviceClient{}, githubauth.App)
@@ -2400,7 +2402,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			// TaskTrooper Telemetry: its alerts become incidents the release
 			// engineer works, and its data reaches the agents as read tools.
 			if telemetrySvc != nil {
-				for _, tool := range telemetrytools.NewExecutors(&telemetrytools.ToolKit{Reader: telemetrySvc}) {
+				for _, tool := range telemetrytools.NewExecutors(&telemetrytools.ToolKit{Reader: telemetrySvc, Writer: telemetrySvc, Targets: deploySvc}) {
 					e.reg.Register(tool)
 				}
 				telemetrySync := telemetryapp.NewIncidentSync(telemetrySvc, prodOpsSvc, repositorySvc)
@@ -2784,6 +2786,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				}
 				releaseSvc := releaseapp.New(releaseDeps)
 				e.releaseSvc = releaseSvc
+				// Every deploy that goes live is marked in the connected telemetry.
+				if telemetrySvc != nil && modelSvc != nil {
+					releaseSvc.SetDeployMarker(telemetryapp.NewDeployMarker(telemetrySvc, modelSvc, repositorySvc))
+				}
 				if e.envReqSvc != nil {
 					e.envReqSvc.SetResumer(releaseSvc.ResumeEnvHolds)
 				}
@@ -3172,6 +3178,13 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		// accounts connected before this build theirs.
 		e.cloudSvc.SetAccountObserver(dataSourceSvc)
 		go dataSourceSvc.SyncCloudAccounts(context.WithoutCancel(ctx))
+	}
+	if dataSourceSvc != nil && telemetrySvc != nil {
+		// The telemetry kind reads the one connection saved in Settings, so
+		// its source is made (and re-verified) whenever that connection is.
+		dataSourceSvc.SetTelemetry(telemetrySvc, telemetryMarks)
+		telemetrySvc.OnUpdate(dataSourceSvc.SyncTelemetrySource)
+		go dataSourceSvc.SyncTelemetrySource(context.WithoutCancel(ctx))
 	}
 	signalsSvc := newSignalsService(e.pgDB, dataSourceSvc)
 	// The Logs explorer is built with the cloud routes, before the signal

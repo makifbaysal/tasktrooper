@@ -36,6 +36,7 @@ func BuiltinDataSourceKinds() []DataSourceKind {
 		DataSourceKindGooglePlayVitals, DataSourceKindAppStoreMetrics, DataSourceKindSentry,
 		DataSourceKindPostHog, DataSourceKindGA4, DataSourceKindPlausible,
 		DataSourceKindDatadog, DataSourceKindNewRelic, DataSourceKindVercel,
+		DataSourceKindTaskTrooperTelemetry,
 	}
 }
 

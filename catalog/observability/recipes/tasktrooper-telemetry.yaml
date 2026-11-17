@@ -1,0 +1,37 @@
+# A service as TaskTrooper Telemetry sees it: its OpenTelemetry service.name
+# (service) in one deployment.environment (env; "*", the default, reads every
+# environment). Telemetry answers RED series of the service's entry spans; a
+# worker with no HTTP traffic answers its consumer processes' messages
+# instead, so the same requests and errors read a worker's consume rate and
+# failures. Latency is the quantile asked for, in ms. logs.lines,
+# traces.spans and errors.issues bring the service's log lines, traces and
+# open error issues into the Logs explorer, the traces view and the errors
+# inbox. The endpoints table is one row per endpoint (or consumer process)
+# over the last hour, the busiest first.
+id: tasktrooper-telemetry
+source_kind: tasktrooper_telemetry
+applies_to:
+  technology: opentelemetry
+detect:
+  metric: service.name
+params: [service, env]
+defaults:
+  env: "*"
+signals:
+  http.requests: '{"service": "$service", "env": "$env", "metric": "requests"}'
+  http.error_ratio: '{"service": "$service", "env": "$env", "metric": "error_ratio"}'
+  http.latency: '{"service": "$service", "env": "$env", "metric": "latency", "quantile": "$__quantile"}'
+  queue.consume_rate: '{"service": "$service", "env": "$env", "metric": "requests"}'
+  process.errors: '{"service": "$service", "env": "$env", "metric": "errors"}'
+  logs.lines: '{"service": "$service", "env": "$env"}'
+  traces.spans: '{"service": "$service", "env": "$env"}'
+  errors.issues: '{"service": "$service", "env": "$env"}'
+tables:
+  endpoints:
+    key_labels: [endpoint]
+    columns:
+      - {key: endpoint, label: Endpoint}
+      - {key: rpm, label: Requests, unit: req/min}
+      - {key: error_pct, label: Errors, unit: "%"}
+      - {key: p95_ms, label: p95, unit: ms}
+    query: '{"service": "$service", "env": "$env"}'
