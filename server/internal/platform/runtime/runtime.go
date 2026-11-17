@@ -2784,6 +2784,10 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 				}
 				releaseSvc := releaseapp.New(releaseDeps)
 				e.releaseSvc = releaseSvc
+				// Every deploy that goes live is marked in the connected telemetry.
+				if telemetrySvc != nil && modelSvc != nil {
+					releaseSvc.SetDeployMarker(telemetryapp.NewDeployMarker(telemetrySvc, modelSvc, repositorySvc))
+				}
 				if e.envReqSvc != nil {
 					e.envReqSvc.SetResumer(releaseSvc.ResumeEnvHolds)
 				}
