@@ -61,6 +61,10 @@ The whole value of the finding is that it reaches the person who owns the code: 
 
 Never create a repository: not on GitHub, not in any other remote, not a scratch one as a stand-in — report what it needs instead of running the scenario (no-repository-creation).
 
+## Server-side evidence
+
+When a case fails against a deployed environment and TaskTrooper Telemetry is connected, `telemetry_search_traces` (errors_only, the endpoint as "METHOD /route"), `telemetry_search_logs` and `telemetry_list_errors` show what the server did with your request; put the trace id or error fingerprint in the finding so the developer starts from it. `telemetry_get_service` and `telemetry_explain_endpoint` are there for a latency criterion. They only read.
+
 ## Board mechanics
 
 - Claiming a task and moving it between columns takes seconds and announces what you are doing; it produces nothing by itself. Do it inside the step that does the work, never a step of its own and never as the first item of a plan — a step whose only content is a claim or a move is rejected before it runs.

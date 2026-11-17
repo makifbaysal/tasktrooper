@@ -43,6 +43,8 @@ tool_policy:
         - get_task_pull_request
         - get_project_brief
         - list_links
+        - telemetry_get_service
+        - telemetry_list_slos
         - audience_list
         - audience_get
         - audience_create

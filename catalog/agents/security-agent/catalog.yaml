@@ -41,6 +41,9 @@ tool_policy:
         - list_links
         - get_environment
         - list_runtime_errors
+        - telemetry_search_logs
+        - telemetry_search_traces
+        - telemetry_list_errors
     allow_mcp_servers:
         - semgrep
         - osv-scanner

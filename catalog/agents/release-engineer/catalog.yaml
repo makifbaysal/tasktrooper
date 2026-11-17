@@ -58,6 +58,15 @@ tool_policy:
         - telemetry_list_errors
         - telemetry_list_deploys
         - telemetry_api_get
+        - telemetry_explain_endpoint
+        - telemetry_list_slos
+        - telemetry_list_monitors
+        - telemetry_list_load_tests
+        - telemetry_propose_monitor
+        - telemetry_propose_slo
+        - telemetry_accept_suggestion
+        - telemetry_run_load_test
+        - telemetry_stop_load_test
         - list_error_groups
         - propose_error_definitions
         - list_data_source_metrics

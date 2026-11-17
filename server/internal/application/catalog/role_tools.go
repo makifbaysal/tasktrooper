@@ -168,6 +168,7 @@ func developerToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleSkillTools...)
 	tools = append(tools, roleProjectModelReadTools...)
 	tools = append(tools, roleRuntimeReadTools...)
+	tools = append(tools, roleTelemetryDiagnoseTools...)
 	tools = append(tools, rolePRReadTools...)
 	tools = append(tools, rolePRReplyTools...)
 	tools = append(tools, rolePRCommitTools...)
@@ -199,6 +200,8 @@ func productManagerToolPolicy() domain.ToolPolicy {
 	// The PM answers "what shipped?" from the PR rather than the implementer's summary.
 	tools = append(tools, rolePRReadTools...)
 	tools = append(tools, "get_project_brief", "list_links")
+	// Whether a service is healthy and meeting its SLOs, to answer "how is it doing" and to size work; nothing deeper.
+	tools = append(tools, "telemetry_get_service", "telemetry_list_slos")
 	// Audience research: synthetic personas written from the project's brief,
 	// studies that ask them whether they would pay, reports, 1:1 talks. Every
 	// call that spends model calls needs the user's yes (`user_approved`).
@@ -237,6 +240,8 @@ func architectToolPolicy() domain.ToolPolicy {
 	// tail (query_runtime_logs) or the deploy history (list_deployments) —
 	// those are for the implementer and QA, not the reviewer.
 	tools = append(tools, "get_environment", "list_runtime_errors")
+	// The connected telemetry's view of a service: its endpoints and what it depends on, for judging a design against how it really runs.
+	tools = append(tools, "telemetry_get_service")
 	// Decomposition opens the design system UI tasks wait for through the server's brief, not a hand-written task.
 	tools = append(tools, "request_design_system")
 	return domain.ToolPolicy{AllowTools: tools}
@@ -253,6 +258,8 @@ func qaToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleMobileTools...)
 	tools = append(tools, roleProjectModelReadTools...)
 	tools = append(tools, roleRuntimeReadTools...)
+	// A failing case on a deployed environment is explained from its traces and logs before it is reported.
+	tools = append(tools, roleTelemetryDiagnoseTools...)
 	tools = append(tools, "list_board_tasks", "list_ready_tasks", "move_board_task", "add_task_comment", "list_task_comments", "list_task_documents", "list_acceptance_criteria", "review_criterion", "list_repositories", "record_review_findings")
 	// QA is the only role that WRITES test cases.
 	tools = append(tools, "list_test_cases", "record_test_cases", "set_test_case_result")
@@ -292,6 +299,7 @@ func releaseEngineerToolPolicy() domain.ToolPolicy {
 	// create_board_task, and tells the user about the rest with
 	// propose_incident_remedy.
 	tools = append(tools, roleTelemetryReadTools...)
+	tools = append(tools, roleTelemetryWriteTools...)
 	tools = append(tools, "propose_incident_remedy", "resolve_incident")
 	tools = append(tools, roleObservabilityTools...)
 	// Enabling observability ends in a developer task, never in an edit: the
@@ -336,6 +344,10 @@ var roleTelemetryReadTools = []string{
 	"telemetry_list_errors",
 	"telemetry_list_deploys",
 	"telemetry_api_get",
+	"telemetry_explain_endpoint",
+	"telemetry_list_slos",
+	"telemetry_list_monitors",
+	"telemetry_list_load_tests",
 }
 
 // The release engineer's observability work: read error groups and data
@@ -371,4 +383,25 @@ func mobileDeveloperToolPolicy() domain.ToolPolicy {
 	tools = append(tools, roleMobileTools...)
 	base.AllowTools = tools
 	return base
+}
+
+// Diagnosing one's own component in the connected telemetry: the service's
+// health, why one endpoint got worse, and its traces, logs and error groups.
+// Not incidents (the release engineer works those), deploys or the raw API.
+var roleTelemetryDiagnoseTools = []string{
+	"telemetry_get_service",
+	"telemetry_explain_endpoint",
+	"telemetry_search_traces",
+	"telemetry_search_logs",
+	"telemetry_list_errors",
+}
+
+// The release engineer alone changes telemetry, and each of these but
+// telemetry_stop_load_test acts only after the user approved the exact change.
+var roleTelemetryWriteTools = []string{
+	"telemetry_propose_monitor",
+	"telemetry_propose_slo",
+	"telemetry_accept_suggestion",
+	"telemetry_run_load_test",
+	"telemetry_stop_load_test",
 }
