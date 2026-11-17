@@ -70,17 +70,19 @@ type Deps struct {
 }
 
 type Service struct {
-	store       port.DataSourceStore
-	recipeStore port.ObservabilityRecipeStore
-	clouds      port.CloudAccountReader
-	cloudList   port.CloudAccountLister
-	cloudLinks  port.CloudSourceLinkStore
-	storeCreds  port.StoreCredentialReader
-	kinds       map[domain.DataSourceKind]port.DataSourceKindAdapter
-	order       []domain.DataSourceKind
-	catalog     *Catalog
-	policy      urlguard.Policy
-	now         func() time.Time
+	store          port.DataSourceStore
+	recipeStore    port.ObservabilityRecipeStore
+	clouds         port.CloudAccountReader
+	cloudList      port.CloudAccountLister
+	cloudLinks     port.CloudSourceLinkStore
+	storeCreds     port.StoreCredentialReader
+	telemetry      TelemetryConnection
+	telemetryMarks port.TelemetrySourceMarkStore
+	kinds          map[domain.DataSourceKind]port.DataSourceKindAdapter
+	order          []domain.DataSourceKind
+	catalog        *Catalog
+	policy         urlguard.Policy
+	now            func() time.Time
 
 	mu        sync.Mutex
 	observers []func(id uuid.UUID)

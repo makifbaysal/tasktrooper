@@ -36,3 +36,17 @@ func (s *SettingsStore) SetTelemetrySettings(ctx context.Context, baseURL string
 	}
 	return s.setPlain(ctx, telemetryURLKey, baseURL)
 }
+
+const telemetrySourceDeletedKey = "telemetry_data_source_deleted"
+
+func (s *SettingsStore) TelemetrySourceDeleted(ctx context.Context) (bool, error) {
+	v, err := s.plain(ctx, telemetrySourceDeletedKey)
+	return v == "true", err
+}
+
+func (s *SettingsStore) SetTelemetrySourceDeleted(ctx context.Context, deleted bool) error {
+	if !deleted {
+		return s.forgetKeys(ctx, telemetrySourceDeletedKey)
+	}
+	return s.setPlain(ctx, telemetrySourceDeletedKey, "true")
+}
