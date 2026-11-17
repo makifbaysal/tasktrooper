@@ -12,7 +12,8 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
-const { createDataSource, updateDataSource, getDataSource } = vi.hoisted(() => ({
+const { createDataSource, updateDataSource, getDataSource, telemetryStatus } = vi.hoisted(() => ({
+  telemetryStatus: vi.fn(),
   createDataSource: vi.fn(),
   updateDataSource: vi.fn(),
   getDataSource: vi.fn(),
@@ -20,7 +21,7 @@ const { createDataSource, updateDataSource, getDataSource } = vi.hoisted(() => (
 
 vi.mock("@/api", async () => {
   const actual = await vi.importActual<typeof import("@/api")>("@/api");
-  return { ...actual, api: { ...actual.api, createDataSource, updateDataSource, getDataSource } };
+  return { ...actual, api: { ...actual.api, createDataSource, updateDataSource, getDataSource, telemetryStatus } };
 });
 
 function formElement(kinds: DataSourceKindInfo[], source: DataSource | undefined, onSaved: (ds: DataSource) => void) {
@@ -182,7 +183,7 @@ describe("DataSourceForm — edit", () => {
     updateDataSource.mockResolvedValue(source);
     const { rerender } = renderForm({ kinds: [], source });
     expect(screen.queryByLabelText("URL")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Save and check" })).toBeDisabled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save and check" })).toBeDisabled());
 
     rerender([prometheusKind]);
     expect(await screen.findByLabelText("URL")).toHaveValue("https://prom.example.com");
@@ -333,5 +334,54 @@ describe("DataSourceForm — a kind that reads through a cloud account", () => {
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(screen.getByText("Kind: Google Cloud Monitoring")).toBeInTheDocument();
     expect(screen.getByLabelText("Google Cloud account")).toHaveTextContent("Acme production");
+  });
+});
+
+describe("DataSourceForm — TaskTrooper Telemetry", () => {
+  const telemetryKind: DataSourceKindInfo = {
+    ...prometheusKind,
+    kind: "tasktrooper_telemetry",
+    label: "TaskTrooper Telemetry",
+    description: "",
+    capabilities: ["metrics", "logs", "traces", "errors"],
+    fields: [],
+  };
+
+  function renderTelemetry() {
+    return render(
+      <MemoryRouter>
+        <I18nProvider>
+          <DataSourceForm open onOpenChange={() => {}} kinds={[telemetryKind]} onSaved={vi.fn()} />
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("points at the Settings connection instead of an empty form", async () => {
+    telemetryStatus.mockResolvedValue({ configured: true, reachable: true });
+    renderTelemetry();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText(/uses the connection saved in Settings/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open telemetry settings" })).toHaveAttribute("href", "/settings/telemetry");
+    expect(screen.getByRole("button", { name: "Save and check" })).toBeEnabled();
+  });
+
+  it("cannot be saved while the connection is not configured", async () => {
+    telemetryStatus.mockResolvedValue({ configured: false, reachable: false });
+    renderTelemetry();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(await screen.findByText(/Connect TaskTrooper Telemetry in Settings first/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save and check" })).toBeDisabled();
+  });
+
+  it("explains that there can be only one", async () => {
+    telemetryStatus.mockResolvedValue({ configured: true, reachable: true });
+    createDataSource.mockRejectedValueOnce(new ApiError("invalid data source: kind: duplicate", 400, "", { kind: "duplicate" }));
+    renderTelemetry();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText(/uses the connection saved in Settings/);
+    fireEvent.click(screen.getByRole("button", { name: "Save and check" }));
+    expect(await screen.findByText("TaskTrooper Telemetry is already a data source. There can be only one.")).toBeInTheDocument();
+    expect(createDataSource).toHaveBeenCalledWith(expect.objectContaining({ kind: "tasktrooper_telemetry" }));
   });
 });

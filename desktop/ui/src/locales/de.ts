@@ -24,6 +24,7 @@ import { audienceHub } from "@/locales/de/audienceHub";
 import { audienceReportKinds } from "@/locales/de/audienceReportKinds";
 import { audienceStudy } from "@/locales/de/audienceStudy";
 import { telemetryHub } from "@/locales/de/telemetryHub";
+import { telemetryViews } from "@/locales/de/telemetryViews";
 import { setup } from "@/locales/de/setup";
 import { remoteAccess } from "@/locales/de/remoteAccess";
 import { runTrace } from "@/locales/de/runTrace";
@@ -285,6 +286,7 @@ export const de: Dict = {
   audienceReportKinds,
   audienceStudy,
   telemetryHub,
+  telemetryViews,
   setup,
   remoteAccess,
   runTrace,

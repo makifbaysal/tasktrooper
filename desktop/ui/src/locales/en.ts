@@ -26,6 +26,7 @@ import { audienceHub } from "@/locales/en/audienceHub";
 import { audienceReportKinds } from "@/locales/en/audienceReportKinds";
 import { audienceStudy } from "@/locales/en/audienceStudy";
 import { telemetryHub } from "@/locales/en/telemetryHub";
+import { telemetryViews } from "@/locales/en/telemetryViews";
 import { setup } from "@/locales/en/setup";
 import { remoteAccess } from "@/locales/en/remoteAccess";
 import { runTrace } from "@/locales/en/runTrace";
@@ -287,6 +288,7 @@ export const en = {
   audienceReportKinds,
   audienceStudy,
   telemetryHub,
+  telemetryViews,
   setup,
   remoteAccess,
   runTrace,

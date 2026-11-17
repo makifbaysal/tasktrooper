@@ -1144,6 +1144,9 @@ export const operations: OperationsDict = {
       connectCloudAccount: "Ayarlar → Entegrasyonlar'dan bağlayın",
       cloudAccountPlaceholder: "Bir {provider} hesabı seçin",
       namePlaceholderCloud: "Boş bırakılırsa tür ve hesap adından oluşur",
+      telemetryHint: "Bu kaynak Ayarlar → TaskTrooper Telemetry'de kayıtlı bağlantıyı kullanır. Burada doldurulacak bir şey yok.",
+      telemetryNotConfigured: "Önce Ayarlar'da TaskTrooper Telemetry'yi bağlayın; bu kaynak o bağlantıyı okur.",
+      openTelemetrySettings: "Telemetri ayarlarını aç",
     },
     errors: {
       required: "Zorunlu.",
@@ -1154,6 +1157,9 @@ export const operations: OperationsDict = {
       too_long: "Çok uzun.",
       secrets_required: "Kayıtlı kimlik bilgileri yeni bir adrese taşınmaz. Yeniden girin ya da kaldırın.",
       byField: {
+        kind: {
+          duplicate: "TaskTrooper Telemetry zaten bir veri kaynağı. Yalnızca bir tane olabilir.",
+        },
         bootstrap_servers: {
           invalid: "Aracıları virgülle ayırarak host:port biçiminde girin, örneğin broker-1:9092,broker-2:9092. URL girmeyin.",
           not_permitted: "Bu aracılardan biri izin verilen bir adres değil. Link-local ve bulut meta veri adresleri her zaman reddedilir.",
@@ -1244,6 +1250,10 @@ export const operations: OperationsDict = {
       },
     },
     kinds: {
+      tasktrooper_telemetry: {
+        label: "TaskTrooper Telemetry",
+        description: "TaskTrooper Telemetry sunucunuzdaki servisler, izler, loglar ve hatalar; Ayarlar'da kayıtlı bağlantı üzerinden.",
+      },
       prometheus: {
         label: "Prometheus uyumlu",
         description:

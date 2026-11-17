@@ -1138,6 +1138,9 @@ export const operations = {
       connectCloudAccount: "前往 设置 → 集成 连接一个",
       cloudAccountPlaceholder: "选择一个 {provider} 账号",
       namePlaceholderCloud: "默认使用类型和账号名称",
+      telemetryHint: "此数据源使用“设置 → TaskTrooper Telemetry”中保存的连接，这里无需填写任何内容。",
+      telemetryNotConfigured: "请先在设置中连接 TaskTrooper Telemetry；此数据源读取该连接。",
+      openTelemetrySettings: "打开遥测设置",
     },
     errors: {
       required: "必填。",
@@ -1148,6 +1151,9 @@ export const operations = {
       too_long: "太长。",
       secrets_required: "已保存的凭据不会带到新地址。请重新输入或移除。",
       byField: {
+        kind: {
+          duplicate: "TaskTrooper Telemetry 已经是一个数据源，只能有一个。",
+        },
         bootstrap_servers: {
           invalid: "以 host:port 形式填写代理，用逗号分隔，例如 broker-1:9092,broker-2:9092，不要填 URL。",
           not_permitted: "其中一个代理不是允许的地址。链路本地地址和云元数据地址总会被拒绝。",
@@ -1235,6 +1241,10 @@ export const operations = {
       },
     },
     kinds: {
+      tasktrooper_telemetry: {
+        label: "TaskTrooper Telemetry",
+        description: "通过设置中保存的连接，读取 TaskTrooper Telemetry 服务器上的服务、链路、日志和错误。",
+      },
       prometheus: {
         label: "兼容 Prometheus",
         description:
