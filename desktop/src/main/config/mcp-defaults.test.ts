@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("electron", () => ({ safeStorage: {}, app: { getPath: () => "/userData" } }));
 
 const { asMcpServers } = await import("./mcp-servers.js");
-const { MCP_DEFAULTS, MCP_DEFAULTS_VERSION, SeededMcpServerStore, withMcpDefaults } = await import("./mcp-defaults.js");
+const { ARTCRAFT_APPS, MCP_DEFAULTS, MCP_DEFAULTS_VERSION, SeededMcpServerStore, artCraftCli, artCraftDefaults, reconcileArtCraft, withMcpDefaults } =
+  await import(
+  "./mcp-defaults.js"
+);
 type McpServerConfig = import("./mcp-servers.js").McpServerConfig;
 
 function memoryStore(initial: McpServerConfig[] | null) {
@@ -32,8 +35,24 @@ describe("the default MCP servers", () => {
     expect(servers.some((s) => "since" in s)).toBe(false);
   });
 
-  it("start with only browser switched on, as the cloud had them", () => {
-    expect(servers.filter((s) => !s.disabled).map((s) => s.name)).toEqual(["browser"]);
+  it("start with only browser switched on, as the cloud had them, besides the ArtCraft apps installed here", () => {
+    const artCraft = new Set<string>(ARTCRAFT_APPS);
+    expect(servers.filter((s) => !s.disabled && !artCraft.has(s.name)).map((s) => s.name)).toEqual(["browser"]);
+  });
+
+  it("switch an ArtCraft app on only when its CLI is installed, writing only the design files folder", () => {
+    const home = "/home/me";
+    const apps = artCraftDefaults(home, (file) => file.endsWith("figcraft-cli"));
+    expect(apps.filter((a) => !a.disabled).map((a) => a.name)).toEqual(["figcraft"]);
+    const figcraft = apps.find((a) => a.name === "figcraft");
+    expect(figcraft?.command).toBe(path.join(home, "artCraft", "figcraft-cli", "figcraft-cli"));
+    expect(figcraft?.args).toEqual([
+      "mcp",
+      "--automation-read-root",
+      home,
+      "--automation-write-root",
+      path.join(home, "Documents", "TaskTrooper Designs"),
+    ]);
   });
 
   it("are the templates the backend offers, less the one whose argument is a password", () => {
@@ -41,7 +60,10 @@ describe("the default MCP servers", () => {
       .map((dir) => path.join(dir, "internal/domain/mcp_template.go"))
       .find((file) => existsSync(file));
     expect(source).toBeDefined();
-    const ids = [...readFileSync(source as string, "utf8").matchAll(/ID: "([^"]+)"/g)].map((m) => m[1]);
+    const artCraft = (source as string).replace("mcp_template.go", "mcp_template_artcraft.go");
+    const ids = [source as string, artCraft]
+      .filter((file) => existsSync(file))
+      .flatMap((file) => [...readFileSync(file, "utf8").matchAll(/ID: "([^"]+)"/g)].map((m) => m[1]));
     expect(MCP_DEFAULTS.map((d) => d.name)).toEqual(ids.filter((id) => id !== "postgres"));
   });
 });
@@ -70,7 +92,7 @@ describe("SeededMcpServerStore", () => {
     expect(store.read()).toHaveLength(MCP_DEFAULTS.length);
     store.read();
     expect(inner.writes).toHaveLength(1);
-    expect(JSON.parse(readFileSync(path.join(where, "mcp-defaults.json"), "utf8"))).toEqual({ version: MCP_DEFAULTS_VERSION });
+    expect(JSON.parse(readFileSync(path.join(where, "mcp-defaults.json"), "utf8"))).toMatchObject({ version: MCP_DEFAULTS_VERSION });
   });
 
   it("does not bring back a default the member removed", () => {
@@ -101,5 +123,38 @@ describe("SeededMcpServerStore", () => {
     expect(new SeededMcpServerStore(inner, where, (line) => lines.push(line)).read()).toEqual([]);
     expect(lines[0]).toMatch(/could not add the default MCP servers: no key store/);
     expect(existsSync(path.join(where, "mcp-defaults.json"))).toBe(false);
+  });
+});
+
+describe("ArtCraft CLIs wherever they are", () => {
+  const home = "/home/me";
+
+  it("finds a CLI in an app bundle or this app's install folder, not only ~/artCraft", () => {
+    const installed = path.join(home, ".local", "bin", "figcraft-cli");
+    expect(artCraftCli("figcraft", home, (f) => f === installed)).toBe(installed);
+    expect(artCraftCli("figcraft", home, () => false)).toBe(installed);
+    if (process.platform === "darwin") {
+      const bundle = "/Applications/PhotoCraft.app/Contents/MacOS/photocraft-cli";
+      expect(artCraftCli("photocraft", home, (f) => f === bundle)).toBe(bundle);
+    }
+  });
+
+  it("points a server at the CLI installed later and switches it on once", () => {
+    const found = path.join(home, "artCraft", "figcraft-cli", "figcraft-cli");
+    const before = [{ name: "figcraft", command: "/gone/figcraft-cli", args: ["mcp"], disabled: true }];
+    const first = reconcileArtCraft(before, new Set(), home, (f) => f === found);
+    expect(first.changed).toBe(true);
+    expect(first.servers[0]).toEqual({ name: "figcraft", command: found, args: ["mcp"] });
+    expect([...first.switchedOn]).toEqual(["figcraft"]);
+
+    const offAgain = [{ ...first.servers[0]!, disabled: true }];
+    const second = reconcileArtCraft(offAgain, first.switchedOn, home, (f) => f === found);
+    expect(second.changed).toBe(false);
+    expect(second.servers[0]?.disabled).toBe(true);
+  });
+
+  it("leaves a server alone while its CLI is nowhere", () => {
+    const list = [{ name: "vectorcraft", command: "/x/vectorcraft-cli", disabled: true }];
+    expect(reconcileArtCraft(list, new Set(), home, () => false)).toMatchObject({ changed: false, servers: list });
   });
 });

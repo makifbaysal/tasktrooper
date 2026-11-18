@@ -530,6 +530,9 @@ export const DESKTOP_TOOLCHAIN_IDS = [
   "duckdb",
   "godot",
   "unity-hub",
+  "figcraft",
+  "vectorcraft",
+  "photocraft",
 ] as const;
 export type ToolchainId = (typeof DESKTOP_TOOLCHAIN_IDS)[number];
 

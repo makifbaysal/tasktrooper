@@ -26,7 +26,9 @@ func TestConnectServerReportsWhyStdioServerDied(t *testing.T) {
 	_, _, err := connectServer(ctx, cfg, urlguard.Default(), nil)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "EOF")
+	// Whether the handshake sees EOF or a broken pipe depends on when the
+	// process dies; what matters is that the reason reaches the error.
+	require.Regexp(t, `EOF|broken pipe`, err.Error())
 	require.Contains(t, err.Error(), "env: node: No such file or directory")
 	require.Contains(t, err.Error(), "exit status 127")
 }

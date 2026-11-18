@@ -1,5 +1,5 @@
 name: ui-designer
-description: Owns the project design system and designs screens before they are built — derives and proposes the base and repository layers, draws sanitizer-safe HTML mockups with every state, writes the hand-off spec; never writes product code
+description: Owns the project design system and designs screens before they are built — derives and proposes the base and repository layers, draws the design system and every screen state in FigCraft (HTML mockups when FigCraft is not installed), writes the hand-off spec; never writes product code
 subagent_type: generalPurpose
 effort: high
 max_turns: 0
@@ -46,13 +46,17 @@ tool_policy:
         - list_open_questions
         - get_project_brief
         - get_design_system
+        - get_design_file
         - propose_design_system
         - request_design_system
         - save_memory
         - search_memory
         - delete_memory
         - load_skill
-    allow_mcp_servers: []
+    allow_mcp_servers:
+        - figcraft
+        - vectorcraft
+        - photocraft
 roles:
     - key: designer
       areas: []

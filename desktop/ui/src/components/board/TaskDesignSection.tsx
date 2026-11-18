@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { AttachmentMeta, TaskDesignReference, TaskDesignSystemSummary, TaskDocument } from "@/api";
 import { AttachmentList } from "@/components/attachments/AttachmentList";
 import { DesignDocumentDialog } from "@/components/board/DesignDocumentDialog";
+import { FigCraftFileCard } from "@/components/board/FigCraftFileCard";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
@@ -142,6 +143,7 @@ function DesignReferenceCard({
         </Link>
       </CardHeader>
       <CardContent className="space-y-4 p-4 pt-0">
+        <FigCraftFileCard scope="task" id={reference.task_id} compact />
         {specs.length > 0 && (
           <div className="space-y-1.5">
             <p className="text-caption font-medium text-muted-foreground">{t("designSystem.task.handoff")}</p>

@@ -35,6 +35,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/datasource"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
+	"github.com/makifbaysal/tasktrooper/server/internal/application/designfile"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/designsystem"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/embedmap"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/evolution"
@@ -173,6 +174,7 @@ type Handler struct {
 	localPreviewSvc *localpreview.Service
 	simRunSvc       *simrun.Service
 	designSystemSvc *designsystem.Service
+	designFileSvc   *designfile.Service
 	// mcpToolServer serves TaskTrooper's tools to a local Claude Code session.
 	// Nil on every host without the CLI, in which case no route is mounted.
 	mcpToolServer *mcpserver.Server
@@ -260,6 +262,7 @@ type Config struct {
 	LocalPreviewSvc   *localpreview.Service
 	SimRunSvc         *simrun.Service
 	DesignSystemSvc   *designsystem.Service
+	DesignFileSvc     *designfile.Service
 	MCPToolServer     *mcpserver.Server
 	BootSeed          BootSeed
 	RemoteAccessSvc   *remoteaccess.Service
@@ -340,6 +343,7 @@ func NewHandler(cfg Config) *Handler {
 		localPreviewSvc:   cfg.LocalPreviewSvc,
 		simRunSvc:         cfg.SimRunSvc,
 		designSystemSvc:   cfg.DesignSystemSvc,
+		designFileSvc:     cfg.DesignFileSvc,
 		mcpToolServer:     cfg.MCPToolServer,
 		bootSeed:          cfg.BootSeed,
 		remoteSvc:         cfg.RemoteAccessSvc,
@@ -405,6 +409,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	h.registerStoreOpsRoutes(app)
 	h.registerSimulatorRunRoutes(app)
 	h.registerDesignSystemRoutes(app)
+	h.registerDesignFileRoutes(app)
 	h.registerWorkspaceRoutes(app)
 	h.registerWorkflowRoutes(app)
 	h.registerEvolutionRoutes(app)

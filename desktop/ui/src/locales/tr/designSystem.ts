@@ -179,4 +179,16 @@ export const designSystem: DesignSystemDict = {
     frameTitle: "Tasarım: {title}",
     emptyDocument: "Bu doküman boş.",
   },
+  figcraft: {
+    title: "FigCraft tasarımı",
+    open: "FigCraft'ta aç",
+    reveal: "Finder'da göster",
+    page: "Sayfa",
+    frames: "{count} çerçeve",
+    loading: "Sayfa hazırlanıyor…",
+    renderFailed: "Bu sayfa gösterilemedi.",
+    notInstalled: "Bu bilgisayarda FigCraft kurulu değil, sayfalar burada gösterilemiyor. Ayarlar → Geliştirme ortamı (Tasarım) bölümünden kurabilirsiniz.",
+    openFailed: "Dosya FigCraft'ta açılamadı",
+    zoomHint: "Tam boy görmek için sayfaya tıklayın; tüm katmanlar için FigCraft'ta açın.",
+  },
 };

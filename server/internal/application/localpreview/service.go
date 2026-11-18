@@ -1,7 +1,7 @@
 package localpreview
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -243,15 +243,6 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 		cmd.Env = append(cmd.Env, portEnv(port)...)
 	}
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return domain.LocalPreview{}, fmt.Errorf("open preview output: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return domain.LocalPreview{}, fmt.Errorf("open preview error output: %w", err)
-	}
-
 	p := &process{
 		preview: domain.LocalPreview{
 			RepositoryID: repositoryID,
@@ -264,6 +255,12 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 		done:   make(chan struct{}),
 		status: domain.LocalPreviewStarting,
 	}
+	// Writers rather than pipes: cmd.Wait then returns only after every line
+	// the command printed has been read, so a preview that dies at once still
+	// shows why (with pipes, Wait could close them before the last lines were
+	// read). proctree's WaitDelay bounds the wait when a child keeps them open.
+	cmd.Stdout = &lineWriter{onLine: p.appendLine}
+	cmd.Stderr = &lineWriter{onLine: p.appendLine}
 
 	tree, err := proctree.Start(cmd)
 	if err != nil {
@@ -273,8 +270,6 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 
 	s.active[taskID] = p
 	s.persistLocked()
-	go pumpLines(stdout, p.appendLine)
-	go pumpLines(stderr, p.appendLine)
 	go s.wait(taskID, p)
 
 	log.Info().Str("repository_id", repositoryID.String()).Str("task_id", taskID.String()).
@@ -282,17 +277,54 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 	return p.snapshot(), nil
 }
 
-func pumpLines(r io.Reader, onLine func(string)) {
-	scanner := bufio.NewScanner(r)
+// lineWriter hands each complete line written to it to onLine. Lines longer
+// than maxLineBytes are cut there; the rest of the line starts a new one.
+type lineWriter struct {
+	onLine func(string)
+	buf    []byte
+}
 
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		onLine(scanner.Text())
+const maxLineBytes = 1024 * 1024
+
+func (w *lineWriter) Write(b []byte) (int, error) {
+	n := len(b)
+	for len(b) > 0 {
+		i := bytes.IndexByte(b, '\n')
+		if i < 0 {
+			w.buf = append(w.buf, b...)
+			if len(w.buf) >= maxLineBytes {
+				w.flush()
+			}
+			break
+		}
+		w.buf = append(w.buf, b[:i]...)
+		w.flush()
+		b = b[i+1:]
 	}
+	return n, nil
+}
+
+// Close hands over a last line that had no newline.
+func (w *lineWriter) Close() error {
+	if len(w.buf) > 0 {
+		w.flush()
+	}
+	return nil
+}
+
+func (w *lineWriter) flush() {
+	w.onLine(strings.TrimSuffix(string(w.buf), "\r"))
+	w.buf = w.buf[:0]
 }
 
 func (s *Service) wait(taskID uuid.UUID, p *process) {
 	err := p.cmd.Wait()
+	// Wait has finished copying output; hand over a last unterminated line.
+	for _, w := range []io.Writer{p.cmd.Stdout, p.cmd.Stderr} {
+		if c, ok := w.(io.Closer); ok {
+			_ = c.Close()
+		}
+	}
 	close(p.done)
 	p.mu.Lock()
 	stopped := p.status == domain.LocalPreviewStopped

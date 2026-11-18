@@ -9,11 +9,12 @@ export const whatsNew = {
     open: "显示新功能",
   },
   v0_3_20: {
-    title: "运营中的 TaskTrooper Telemetry、能读取并操作它的智能体、部署标记",
+    title: "运营中的 TaskTrooper Telemetry、在 FigCraft 中绘制的设计师、部署标记",
     items: {
       operationsSource: "在设置中连接 TaskTrooper Telemetry，它会自动成为运营数据源：每个组件的 RED 图表、日志、链路、错误和端点。",
       agentTools: "智能体获得其角色所需的遥测工具：端点根因分析、SLO、监控和压测。它们只能修改或删除由智能体创建的监控和 KPI。",
       deployMarkers: "每次上线的部署都会带着提交记录标记到已连接的遥测中，回归问题会和引发它的版本并排显示。",
+      figcraftDesigner: "ui-designer 现在在 FigCraft 中绘制：每个设计任务都会获得一个基于你的设计系统、可编辑的独立文件，你可以在任务中预览其页面、在 FigCraft 中打开或在访达中显示。FigCraft、VectorCraft 和 PhotoCraft 可在设置 → 开发环境中安装。",
       telemetryScreens: "新的遥测页面：概览、服务地图、基础设施、应用、性能剖析、LLM 用量和压测。",
     },
   },

@@ -529,6 +529,9 @@ export const TOOLCHAIN_IDS = [
   "duckdb",
   "godot",
   "unity-hub",
+  "figcraft",
+  "vectorcraft",
+  "photocraft",
 ] as const;
 export type ToolchainId = (typeof TOOLCHAIN_IDS)[number];
 

@@ -39,6 +39,8 @@ import { PipelineSection } from "@/components/board/PipelineSection";
 import { TaskPreviewsSection } from "@/components/board/TaskPreviewsSection";
 import { RELEASE_STATUS_VARIANT, ReleaseDrawer } from "@/components/projects/repository/deploy/ReleaseDrawer";
 import { TaskAssigneeFields } from "@/components/board/TaskAssigneeFields";
+import { isDesignTask } from "@/lib/design-system";
+import { FigCraftFileCard } from "@/components/board/FigCraftFileCard";
 import { TaskDesignSection } from "@/components/board/TaskDesignSection";
 import { TaskDocumentList } from "@/components/board/TaskDocumentList";
 import { TaskHistory } from "@/components/board/TaskHistory";
@@ -807,6 +809,10 @@ export function TaskDetailDrawer({
                     <MarkdownContent content={task.technical_description} />
                   )}
                 </section>
+
+                {isDesignTask(task) && (
+                  <FigCraftFileCard key={`figcraft-${task.id}`} scope="task" id={task.id} active={open} />
+                )}
 
                 {/* Distinct keys: these two are siblings, and a shared key made React
                     duplicate the design section on every poll that re-rendered them. */}

@@ -2965,6 +2965,32 @@ async function request<T>(path: string, init: RequestInit = {}, deadlineMs?: num
   return JSON.parse(body) as T;
 }
 
+/** Whose FigCraft file: a design task's own, or a project's / repository's design system file. */
+export type DesignFileScope = "task" | "project" | "repository";
+
+export interface DesignFileFrame {
+  id: number;
+  name: string;
+  width: number;
+  height: number;
+}
+
+export interface DesignFilePage {
+  id: number;
+  name: string;
+  frames: DesignFileFrame[];
+}
+
+export interface DesignFileManifest {
+  path: string;
+  exists: boolean;
+  installed: boolean;
+  name?: string;
+  pages: DesignFilePage[];
+  modified?: number;
+  error?: string;
+}
+
 // prompt_tokens is the TOTAL prompt; cache_read/cache_write are subsets of it.
 export interface UsageTotals {
   calls: number;
@@ -8095,6 +8121,27 @@ export const api = {
   // An empty list when the repository follows no design system.
   getRepositoryDesignSystemFiles: (repositoryId: string) =>
     request<{ files: DesignSystemFile[] | null }>(`/v1/repositories/${repositoryId}/design-system/files`),
+
+  getDesignFile: (scope: DesignFileScope, id: string) => request<DesignFileManifest>(`/v1/design-files/${scope}/${id}`),
+
+  // A render can take a few seconds on a large page; it is cached until the file changes.
+  fetchDesignFilePreview: async (scope: DesignFileScope, id: string, pageId: number, modified?: number) => {
+    const res = await fetchWithTimeout(
+      apiUrl(`/v1/design-files/${scope}/${id}/pages/${pageId}/preview?v=${modified ?? 0}`),
+      { method: "GET", headers: authHeaders() },
+      120_000,
+    );
+    if (!res.ok) {
+      throw await apiErrorFrom(res);
+    }
+    return res.blob();
+  },
+
+  openDesignFile: (scope: DesignFileScope, id: string) =>
+    request<void>(`/v1/design-files/${scope}/${id}/open`, { method: "POST" }),
+
+  revealDesignFile: (scope: DesignFileScope, id: string) =>
+    request<void>(`/v1/design-files/${scope}/${id}/reveal`, { method: "POST" }),
 
   getTaskDesign: (repositoryId: string, taskId: string) =>
     request<TaskDesign>(`/v1/repositories/${repositoryId}/tasks/${taskId}/design`),

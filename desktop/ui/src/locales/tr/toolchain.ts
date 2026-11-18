@@ -94,6 +94,7 @@ export const toolchain = {
     groups: {
       basics: "Temel",
       web: "Web",
+      design: "Tasarım",
       backend: "Backend dilleri",
       mobile: "Mobil",
       data: "Veri",

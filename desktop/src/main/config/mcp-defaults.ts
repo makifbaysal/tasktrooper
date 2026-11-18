@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { McpServerConfig } from "./mcp-servers.js";
 
@@ -14,13 +15,131 @@ import type { McpServerConfig } from "./mcp-servers.js";
  * version N gets only the defaults newer than N, so one the member removed
  * stays removed.
  */
-export const MCP_DEFAULTS_VERSION = 1;
+export const MCP_DEFAULTS_VERSION = 2;
 
 interface McpDefault extends McpServerConfig {
   since: number;
 }
 
 const off = { disabled: true, since: 1 } as const;
+
+/**
+ * The ArtCraft apps' CLIs (getartcraft.com), where the ArtCraft Launcher puts
+ * them; each serves MCP with `<app>-cli mcp`. Kept in step with
+ * `server/internal/domain/mcp_template_artcraft.go`: switched on when the CLI
+ * is installed, allowed to read the home folder and to write only the design
+ * files folder.
+ */
+export const ARTCRAFT_APPS = [
+  "figcraft",
+  "vectorcraft",
+  "photocraft",
+  "anicraft",
+  "effectcraft",
+  "filmcraft",
+  "lightcraft",
+  "solidcraft",
+  "soundcraft",
+] as const;
+
+export function designFilesDir(home = os.homedir()): string {
+  return process.env.TASKTROOPER_DESIGNS_DIR || path.join(home, "Documents", "TaskTrooper Designs");
+}
+
+const ARTCRAFT_BUNDLES: Record<(typeof ARTCRAFT_APPS)[number], string> = {
+  figcraft: "FigCraft",
+  vectorcraft: "VectorCraft",
+  photocraft: "PhotoCraft",
+  anicraft: "AniCraft",
+  effectcraft: "EffectCraft",
+  filmcraft: "FilmCraft",
+  lightcraft: "LightCraft",
+  solidcraft: "SolidCraft",
+  soundcraft: "SoundCraft",
+};
+
+function isArtCraftApp(name: string): name is (typeof ARTCRAFT_APPS)[number] {
+  return (ARTCRAFT_APPS as readonly string[]).includes(name);
+}
+
+/** Where the toolchain installer puts one (`toolchain/locations.ts#userBinDir`). */
+function artCraftInstallPath(app: string, home: string): string {
+  const cli = `${app}-cli`;
+  if (process.platform === "win32") {
+    const local = process.env.LOCALAPPDATA || path.join(home, "AppData", "Local");
+    return path.join(local, "Programs", cli, `${cli}.exe`);
+  }
+  return path.join(home, ".local", "bin", cli);
+}
+
+/**
+ * The first copy of an ArtCraft CLI on this computer, in the order the backend
+ * looks (`mcp_template_artcraft.go#artCraftCandidates`), else where the
+ * toolchain installer would put it.
+ */
+export function artCraftCli(app: (typeof ARTCRAFT_APPS)[number], home: string, installed: (file: string) => boolean = existsSync): string {
+  const cli = `${app}-cli`;
+  const exe = process.platform === "win32" ? `${cli}.exe` : cli;
+  const candidates: string[] = [];
+  if (process.env.TASKTROOPER_ARTCRAFT_DIR) candidates.push(path.join(process.env.TASKTROOPER_ARTCRAFT_DIR, cli, exe));
+  candidates.push(path.join(home, "artCraft", cli, exe), artCraftInstallPath(app, home));
+  if (process.platform === "darwin") {
+    const bundle = `${ARTCRAFT_BUNDLES[app]}.app`;
+    candidates.push(path.join("/Applications", bundle, "Contents", "MacOS", exe), path.join(home, "Applications", bundle, "Contents", "MacOS", exe));
+  }
+  return candidates.find((file) => installed(file)) ?? artCraftInstallPath(app, home);
+}
+
+/**
+ * Points every ArtCraft server at the CLI this computer has now and switches
+ * each on the first time its CLI is found; `switchedOn` names those already
+ * switched on once, whose on/off is the person's from then on.
+ */
+export function reconcileArtCraft(
+  list: readonly McpServerConfig[],
+  switchedOn: ReadonlySet<string>,
+  home = os.homedir(),
+  installed: (file: string) => boolean = existsSync,
+): { servers: McpServerConfig[]; switchedOn: Set<string>; changed: boolean } {
+  const on = new Set(switchedOn);
+  let changed = false;
+  const servers = list.map((server) => {
+    if (!isArtCraftApp(server.name) || server.url || !server.command) return server;
+    const found = artCraftCli(server.name, home, installed);
+    if (!installed(found)) return server;
+    let next = server;
+    if (!installed(server.command) && server.command !== found) next = { ...next, command: found };
+    if (!on.has(server.name)) {
+      on.add(server.name);
+      if (next.disabled) {
+        const { disabled: _disabled, ...rest } = next;
+        next = rest;
+      }
+    }
+    if (next !== server) changed = true;
+    return next;
+  });
+  return { servers, switchedOn: on, changed };
+}
+
+export function artCraftDefaults(home = os.homedir(), installed: (file: string) => boolean = existsSync): McpDefault[] {
+  const roots = ["--automation-read-root", home, "--automation-write-root", designFilesDir(home)];
+  const args: Record<(typeof ARTCRAFT_APPS)[number], string[]> = {
+    figcraft: ["mcp", ...roots],
+    vectorcraft: ["mcp", "--headless", ...roots],
+    photocraft: ["mcp", ...roots],
+    anicraft: ["mcp"],
+    effectcraft: ["mcp", ...roots],
+    filmcraft: ["mcp"],
+    lightcraft: ["mcp", "--library", path.join(home, "Pictures", "LightCraftLibrary")],
+    solidcraft: ["mcp", "--headless", "--allow-path", home],
+    soundcraft: ["mcp", ...roots],
+  };
+  return ARTCRAFT_APPS.map((app) => {
+    const command = artCraftCli(app, home, installed);
+    return { name: app, command, args: args[app], ...(installed(command) ? {} : { disabled: true }), since: 2 };
+  });
+}
 
 export const MCP_DEFAULTS: readonly McpDefault[] = [
   { name: "filesystem", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem"], ...off },
@@ -87,6 +206,7 @@ export const MCP_DEFAULTS: readonly McpDefault[] = [
     ...off,
   },
   { name: "snyk", command: "npx", args: ["-y", "snyk@1.1307.4", "mcp", "-t", "stdio"], ...off },
+  ...artCraftDefaults(),
 ];
 
 /** `list` with every default newer than `seeded` that it does not already name. */
@@ -130,29 +250,38 @@ export class SeededMcpServerStore {
     this.#inner.store(servers);
   }
 
-  #seededVersion(): number {
+  #seededState(): { version: number; artcraftOn: string[] } {
     try {
-      const raw: unknown = JSON.parse(readFileSync(path.join(this.#dir, VERSION_FILE), "utf8"));
-      const version = (raw as { version?: unknown }).version;
-      return typeof version === "number" && Number.isInteger(version) && version >= 0 ? version : 0;
+      const raw = JSON.parse(readFileSync(path.join(this.#dir, VERSION_FILE), "utf8")) as { version?: unknown; artcraftOn?: unknown };
+      const version = typeof raw.version === "number" && Number.isInteger(raw.version) && raw.version >= 0 ? raw.version : 0;
+      const artcraftOn = Array.isArray(raw.artcraftOn) ? raw.artcraftOn.filter((n): n is string => typeof n === "string") : [];
+      return { version, artcraftOn };
     } catch {
-      return 0;
+      return { version: 0, artcraftOn: [] };
     }
   }
 
   #seed(): void {
     if (this.#checked) return;
     this.#checked = true;
-    const seeded = this.#seededVersion();
-    if (seeded >= MCP_DEFAULTS_VERSION) return;
+    const seeded = this.#seededState();
     const list = this.#inner.readKnown();
     if (list === null) return;
-    const next = withMcpDefaults(list, seeded);
+    const withDefaults = seeded.version < MCP_DEFAULTS_VERSION ? withMcpDefaults(list, seeded.version) : list;
+    const added = withDefaults.slice(list.length);
+    // A default added switched on was switched on by this app: its on/off is the person's from now on.
+    const alreadyOn = new Set([...seeded.artcraftOn, ...added.filter((s) => isArtCraftApp(s.name) && !s.disabled).map((s) => s.name)]);
+    const reconciled = reconcileArtCraft(withDefaults, alreadyOn);
+    const marksChanged = reconciled.switchedOn.size !== seeded.artcraftOn.length;
+    if (seeded.version >= MCP_DEFAULTS_VERSION && !reconciled.changed && !marksChanged) return;
     try {
-      if (next.length > list.length) this.#inner.store(next);
+      if (added.length > 0 || reconciled.changed) this.#inner.store(reconciled.servers);
+      mkdirSync(designFilesDir(), { recursive: true });
       mkdirSync(this.#dir, { recursive: true });
-      writeFileSync(path.join(this.#dir, VERSION_FILE), `${JSON.stringify({ version: MCP_DEFAULTS_VERSION })}\n`);
-      this.#log(`[keys] added ${next.length - list.length} default MCP servers`);
+      const state = { version: MCP_DEFAULTS_VERSION, artcraftOn: [...reconciled.switchedOn].sort() };
+      writeFileSync(path.join(this.#dir, VERSION_FILE), `${JSON.stringify(state)}\n`);
+      if (added.length > 0) this.#log(`[keys] added ${added.length} default MCP servers`);
+      if (reconciled.changed) this.#log("[keys] pointed the ArtCraft MCP servers at the CLIs on this computer");
     } catch (err) {
       this.#log(`[keys] could not add the default MCP servers: ${err instanceof Error ? err.message : String(err)}`);
     }

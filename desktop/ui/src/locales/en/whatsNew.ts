@@ -11,11 +11,12 @@ export const whatsNew = {
     open: "Show what's new",
   },
   v0_3_20: {
-    title: "TaskTrooper Telemetry in Operations, agents that read and act on it, deploy markers",
+    title: "TaskTrooper Telemetry in Operations, a designer that draws in FigCraft, deploy markers",
     items: {
       operationsSource: "Connect TaskTrooper Telemetry in Settings and it becomes an Operations data source by itself: RED charts, logs, traces, error issues and endpoints for each component.",
       agentTools: "Agents get the telemetry tools their role needs: endpoint root-cause analysis, SLOs, monitors and load tests. They can only change or delete monitors and KPIs an agent created.",
       deployMarkers: "Every deploy that goes live is marked in the connected telemetry with its commit, so a regression lines up with the release that caused it.",
+      figcraftDesigner: "The ui-designer draws in FigCraft: each design task gets its own editable file built on your design system, with pages you can preview, open in FigCraft or show in Finder from the task. The FigCraft, VectorCraft and PhotoCraft tools install from Settings → Development environment.",
       telemetryScreens: "New telemetry screens: overview, service map, infrastructure, apps, profiling, LLM usage and load tests.",
     },
   },

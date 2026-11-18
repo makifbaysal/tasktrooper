@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Notice } from "@/components/ui/notice";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { FigCraftFileCard } from "@/components/board/FigCraftFileCard";
 import { useI18n } from "@/hooks/useI18n";
 import { usePolling } from "@/hooks/usePolling";
 import { useTheme } from "@/hooks/useTheme";
@@ -503,6 +504,7 @@ export function AnalysisReviewPage() {
       {inReview && design && (
         <Notice variant="info" title={t("analysisReview.page.designApproveHint")} className="mx-6 mt-3" />
       )}
+      {design && task && <FigCraftFileCard scope="task" id={task.id} compact className="mx-6 mt-3" />}
       {comparing && leftId && rightId ? (
         <div className="flex min-h-0 flex-1">
           <DesignVariantCompare

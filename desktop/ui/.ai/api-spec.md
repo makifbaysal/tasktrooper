@@ -1434,6 +1434,12 @@ task proposed and supersedes the one each replaces.
   `DESIGN.md`, `design/tokens.json`, `design/tokens.css` and (when there is an
   inventory) `design/INVENTORY.md`, rendered from the effective version; an
   empty list when the repository follows no design system (`DesignSystemFile`).
+- `GET /v1/design-files/{scope}/{id}` (`scope`: `task` | `project` | `repository`) →
+  `DesignFileManifest {path, exists, installed, name?, pages, modified?, error?}`;
+  `GET …/pages/{pageId}/preview` → PNG (fetched as a blob, `api.fetchDesignFilePreview`);
+  `POST …/open` and `POST …/reveal` → 204. `FigCraftFileCard` renders them on a
+  design task's drawer, its review page, the designs a task builds on and the
+  Design System tabs, and renders nothing until the file exists.
 - `GET /v1/repositories/{id}/tasks/{taskId}/design` → `TaskDesign
   {references: [{task_id, key, title, task_type: "design", column, repository_id, documents: TaskDocument[]}], design_system?: {project_id?, project_name?, base_version?, layer_version?, ambiguous?}}`
   — the approved design tasks this task derives from or is blocked by, with

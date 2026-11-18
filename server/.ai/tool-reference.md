@@ -185,6 +185,10 @@ The structured project model's agent-facing surface (`internal/adapter/tools/pro
 
 Granted: all three to `system-architect`, `backend-developer`, `frontend-developer`, `mobile-developer`, `qa-agent` (every role that writes or reviews code) and, narrower, `get_project_brief` + `list_links` to `product-manager`.
 
+### `get_design_file`
+
+- **`get_design_file`** `{task_id?, repository_id?}` — the ui-designer's FigCraft file for its design task (`application/designfile`). `DESIGN_FILES` is `~/Documents/TaskTrooper Designs` (`TASKTROOPER_DESIGNS_DIR`). The first call copies the design system file the task builds on (the repository's layer file, else its base project's) to `tasks/<task id>.figcraft`; a task's file is never overwritten afterwards. Approving a design-system task (`designfile.Approver` around `ApproveForTask`) copies its file over the design system file of each approved version's scope. The ArtCraft MCP templates (`domain/mcp_template_artcraft.go`: figcraft, vectorcraft, photocraft, anicraft, effectcraft, filmcraft, lightcraft, solidcraft, soundcraft — `listed`, on when the CLI is found: `TASKTROOPER_ARTCRAFT_DIR`, `~/artCraft/<app>-cli/`, the toolchain install (`~/.local/bin`, `%LOCALAPPDATA%\Programs\<app>-cli`), the macOS app bundle, then PATH — `domain.ArtCraftCLI`; `mcp.Service.ReconcileArtCraft` re-points each server at boot and switches it on the first time its CLI appears, recording `<id>@on` in `mcp_template_seeds` so a later switch-off stays). The desktop toolchain installs figcraft, vectorcraft and photocraft (pinned GitHub release assets) and recommends them for the ui-designer read the home folder and write only `DESIGN_FILES`; the ui-designer names figcraft, vectorcraft and photocraft.
+
 ### `get_design_system`, `propose_design_system`
 
 The design system's agent-facing surface (`internal/adapter/tools/designsystem`, migration 178).

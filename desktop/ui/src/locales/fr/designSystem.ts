@@ -177,4 +177,16 @@ export const designSystem = {
     frameTitle: "Design : {title}",
     emptyDocument: "Ce document est vide.",
   },
+  figcraft: {
+    title: "Design FigCraft",
+    open: "Ouvrir dans FigCraft",
+    reveal: "Afficher dans le Finder",
+    page: "Page",
+    frames: "{count} cadres",
+    loading: "Rendu de la page…",
+    renderFailed: "Cette page n'a pas pu être rendue.",
+    notInstalled: "FigCraft n'est pas installé sur cet ordinateur : les pages ne peuvent pas être affichées ici. Installez-le dans Réglages → Environnement de développement (Design).",
+    openFailed: "Le fichier n'a pas pu être ouvert dans FigCraft",
+    zoomHint: "Cliquez sur la page pour la voir en taille réelle ; ouvrez-la dans FigCraft pour tous les calques.",
+  },
 };

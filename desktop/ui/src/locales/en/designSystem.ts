@@ -177,6 +177,18 @@ export const designSystem = {
     frameTitle: "Design: {title}",
     emptyDocument: "This document is empty.",
   },
+  figcraft: {
+    title: "FigCraft design",
+    open: "Open in FigCraft",
+    reveal: "Show in Finder",
+    page: "Page",
+    frames: "{count} frames",
+    loading: "Rendering the page…",
+    renderFailed: "This page could not be rendered.",
+    notInstalled: "FigCraft is not installed on this computer, so the pages cannot be shown here. Install it in Settings → Development environment (Design).",
+    openFailed: "The file could not be opened in FigCraft",
+    zoomHint: "Click the page to see it full size; open it in FigCraft for every layer.",
+  },
 };
 
 export type DesignSystemDict = typeof designSystem;
