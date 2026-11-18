@@ -104,6 +104,9 @@ func TestNewServiceReapsAPreviousProcessesOrphan(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return syscall.Kill(pid, 0) != nil
 	}, 2*time.Second, 20*time.Millisecond, "the orphaned process from the old Service must be reaped by the new one")
+	// The old Service still records its process's exit in workspaceRoot;
+	// let it finish before the temp dir is removed.
+	first.Close()
 }
 
 func TestNewServiceLeavesAPersistedPidItCannotVouchFor(t *testing.T) {
