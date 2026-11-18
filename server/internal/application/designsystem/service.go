@@ -282,6 +282,17 @@ func (s *Service) Effective(ctx context.Context, repositoryID uuid.UUID) (domain
 	return s.effective(ctx, repo)
 }
 
+// BaseProject is the project whose base a repository builds on; nil when it
+// has none or more than one could be.
+func (s *Service) BaseProject(ctx context.Context, repositoryID uuid.UUID) (*uuid.UUID, error) {
+	repo, err := s.repos.Get(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	base, _, err := s.baseProjectFor(ctx, repo)
+	return base, err
+}
+
 func (s *Service) effective(ctx context.Context, repo domain.Repository) (domain.EffectiveDesignSystem, error) {
 	eff := domain.EffectiveDesignSystem{RepositoryID: repo.ID, Tokens: []byte(`{}`)}
 	layers, err := s.store.ListForRepository(ctx, repo.ID)

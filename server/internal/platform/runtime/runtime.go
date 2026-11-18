@@ -53,6 +53,8 @@ import (
 	browsertools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/browser"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/clarification"
 	"github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/code"
+	figcraftcli "github.com/makifbaysal/tasktrooper/server/internal/adapter/local/figcraft"
+	designfiletools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/designfile"
 	designsystemtools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/designsystem"
 	memorytools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/memory"
 	mobiletools "github.com/makifbaysal/tasktrooper/server/internal/adapter/tools/mobile"
@@ -83,6 +85,7 @@ import (
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploy"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deployops"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/deploywatch"
+	designfileapp "github.com/makifbaysal/tasktrooper/server/internal/application/designfile"
 	designsystemapp "github.com/makifbaysal/tasktrooper/server/internal/application/designsystem"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/discovery"
 	"github.com/makifbaysal/tasktrooper/server/internal/application/embedmap"
@@ -326,6 +329,7 @@ type engine struct {
 	storeMonitor    *storeops.Monitor
 	simRunSvc       *simrunapp.Service
 	designSystemSvc *designsystemapp.Service
+	designFileSvc   *designfileapp.Service
 	deployOpsSvc    *deployops.Service
 	deployWatchSvc  *deploywatch.Service
 	releaseSvc      *releaseapp.Service
@@ -1914,7 +1918,20 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 			if workflowSvc != nil {
 				designSystemSvc.SetRoleResolver(workflowSvc)
 			}
-			repositorySvc.SetDesignSystemApprover(designSystemSvc)
+			// A design task draws in its own FigCraft file; approving a
+			// design-system task makes that file the design system file.
+			if err := domain.EnsureDesignFilesDir(); err != nil {
+				log.Warn().Err(err).Msg("design files: create folder failed")
+			}
+			designFileSvc := designfileapp.NewService(domain.DesignFilesDir(), &figcraftcli.CLI{
+				ReadRoots:  []string{userHomeOr(domain.DesignFilesDir())},
+				WriteRoots: []string{domain.DesignFilesDir()},
+			}, designSystemSvc)
+			repositorySvc.SetDesignSystemApprover(designfileapp.Approver{Inner: designSystemSvc, Files: designFileSvc})
+			for _, tool := range designfiletools.NewExecutors(designFileSvc) {
+				e.reg.Register(tool)
+			}
+			e.designFileSvc = designFileSvc
 			if boardRunner != nil {
 				boardRunner.SetDesignSystems(designSystemSvc)
 			}
@@ -3265,6 +3282,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		LocalPreviewSvc:   localPreviewSvc,
 		SimRunSvc:         e.simRunSvc,
 		DesignSystemSvc:   e.designSystemSvc,
+		DesignFileSvc:     e.designFileSvc,
 		InitiativeSvc:     initiativeSvc,
 		WorkspaceSvc:      workspaceSvc,
 		WorkflowSvc:       workflowSvc,
@@ -3510,4 +3528,11 @@ func agentNamesFrom(store port.CatalogStore) func(ctx context.Context) map[uuid.
 		}
 		return names
 	}
+}
+
+func userHomeOr(fallback string) string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return fallback
 }

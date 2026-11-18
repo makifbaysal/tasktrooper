@@ -2572,6 +2572,9 @@ Nothing here approves directly.
 | `PUT /v1/repositories/{id}/design-system/base-project` | Body `{project_id}` (or `null` for automatic). A repository in several projects that each have a base is `ambiguous` until one is chosen; the project must be linked to the repository (400 otherwise) |
 | `GET /v1/design-systems/{designSystemId}` | One `domain.DesignSystem` version |
 | `GET /v1/repositories/{id}/design-system/files` | `{files: [{path, content}]}` — `DESIGN.md`, `design/tokens.json`, `design/tokens.css`, `design/INVENTORY.md` rendered from the effective design system (empty when it has none) |
+| `GET /v1/design-files/{scope}/{id}` | `scope` = `task` \| `project` \| `repository`. The FigCraft file a design task draws in (`DESIGN_FILES/tasks/<task id>.figcraft`) or a design system file (`…/projects/<id>/design-system.figcraft`, `…/repositories/<id>/design-system.figcraft`): `{path, exists, installed, name?, pages: [{id, name, frames: [{id, name, width, height}]}], modified?, error?}` read with `figcraft-cli info --json` |
+| `GET /v1/design-files/{scope}/{id}/pages/{pageId}/preview?scale=` | PNG of one page (`figcraft-cli render`), cached under `DESIGN_FILES/.previews` until the file changes; 404 no file / no page, 409 `figcraft_not_installed` |
+| `POST /v1/design-files/{scope}/{id}/open` · `/reveal` | 204 — opens the file in the FigCraft app (`open -a FigCraft` on macOS) / shows it in Finder |
 | `GET /v1/repositories/{id}/tasks/{taskId}/design` | `{references, design_system?}` — the approved design tasks the task derives from or is blocked by (each a `domain.AnalysisReference` with `task_type: "design"` and its documents) and the version summary of the repository's design system |
 
 Every version, and the repository view's merged tokens, carries `lint`

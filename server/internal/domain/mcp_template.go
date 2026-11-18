@@ -34,6 +34,10 @@ type MCPTemplate struct {
 }
 
 func MCPTemplates() []MCPTemplate {
+	return append(coreMCPTemplates(), artCraftTemplates()...)
+}
+
+func coreMCPTemplates() []MCPTemplate {
 	return []MCPTemplate{
 		{
 			ID: "filesystem", Label: "Filesystem", Description: "Filesystem access",

@@ -6,7 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("electron", () => ({ safeStorage: {}, app: { getPath: () => "/userData" } }));
 
 const { asMcpServers } = await import("./mcp-servers.js");
-const { MCP_DEFAULTS, MCP_DEFAULTS_VERSION, SeededMcpServerStore, withMcpDefaults } = await import("./mcp-defaults.js");
+const { ARTCRAFT_APPS, MCP_DEFAULTS, MCP_DEFAULTS_VERSION, SeededMcpServerStore, artCraftDefaults, withMcpDefaults } = await import(
+  "./mcp-defaults.js"
+);
 type McpServerConfig = import("./mcp-servers.js").McpServerConfig;
 
 function memoryStore(initial: McpServerConfig[] | null) {
@@ -32,8 +34,24 @@ describe("the default MCP servers", () => {
     expect(servers.some((s) => "since" in s)).toBe(false);
   });
 
-  it("start with only browser switched on, as the cloud had them", () => {
-    expect(servers.filter((s) => !s.disabled).map((s) => s.name)).toEqual(["browser"]);
+  it("start with only browser switched on, as the cloud had them, besides the ArtCraft apps installed here", () => {
+    const artCraft = new Set<string>(ARTCRAFT_APPS);
+    expect(servers.filter((s) => !s.disabled && !artCraft.has(s.name)).map((s) => s.name)).toEqual(["browser"]);
+  });
+
+  it("switch an ArtCraft app on only when its CLI is installed, writing only the design files folder", () => {
+    const home = "/home/me";
+    const apps = artCraftDefaults(home, (file) => file.endsWith("figcraft-cli"));
+    expect(apps.filter((a) => !a.disabled).map((a) => a.name)).toEqual(["figcraft"]);
+    const figcraft = apps.find((a) => a.name === "figcraft");
+    expect(figcraft?.command).toBe(path.join(home, "artCraft", "figcraft-cli", "figcraft-cli"));
+    expect(figcraft?.args).toEqual([
+      "mcp",
+      "--automation-read-root",
+      home,
+      "--automation-write-root",
+      path.join(home, "Documents", "TaskTrooper Designs"),
+    ]);
   });
 
   it("are the templates the backend offers, less the one whose argument is a password", () => {
@@ -41,7 +59,10 @@ describe("the default MCP servers", () => {
       .map((dir) => path.join(dir, "internal/domain/mcp_template.go"))
       .find((file) => existsSync(file));
     expect(source).toBeDefined();
-    const ids = [...readFileSync(source as string, "utf8").matchAll(/ID: "([^"]+)"/g)].map((m) => m[1]);
+    const artCraft = (source as string).replace("mcp_template.go", "mcp_template_artcraft.go");
+    const ids = [source as string, artCraft]
+      .filter((file) => existsSync(file))
+      .flatMap((file) => [...readFileSync(file, "utf8").matchAll(/ID: "([^"]+)"/g)].map((m) => m[1]));
     expect(MCP_DEFAULTS.map((d) => d.name)).toEqual(ids.filter((id) => id !== "postgres"));
   });
 });
