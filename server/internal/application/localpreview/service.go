@@ -65,6 +65,9 @@ type Service struct {
 	// active is keyed by task: each task's branch has its own checkout, so
 	// previews of different tasks in one repository run side by side.
 	active map[uuid.UUID]*process
+	// waiters counts the wait goroutines still running, so Close returns only
+	// after the last one has recorded its process's exit.
+	waiters sync.WaitGroup
 }
 
 func NewService(deps Deps) *Service {
@@ -270,6 +273,7 @@ func (s *Service) Start(ctx context.Context, repositoryID, taskID uuid.UUID, com
 
 	s.active[taskID] = p
 	s.persistLocked()
+	s.waiters.Add(1)
 	go s.wait(taskID, p)
 
 	log.Info().Str("repository_id", repositoryID.String()).Str("task_id", taskID.String()).
@@ -318,6 +322,7 @@ func (w *lineWriter) flush() {
 }
 
 func (s *Service) wait(taskID uuid.UUID, p *process) {
+	defer s.waiters.Done()
 	err := p.cmd.Wait()
 	// Wait has finished copying output; hand over a last unterminated line.
 	for _, w := range []io.Writer{p.cmd.Stdout, p.cmd.Stderr} {
@@ -446,6 +451,7 @@ func (s *Service) Close() {
 		}(p)
 	}
 	wg.Wait()
+	s.waiters.Wait()
 }
 
 // DetectRunCommand returns the shell command to run dir's project locally.
