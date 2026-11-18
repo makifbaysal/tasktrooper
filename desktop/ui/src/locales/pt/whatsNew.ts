@@ -9,11 +9,12 @@ export const whatsNew = {
     open: "Mostrar novidades",
   },
   v0_3_20: {
-    title: "TaskTrooper Telemetry em Operações, agentes que a leem e agem, marcadores de deploy",
+    title: "TaskTrooper Telemetry em Operações, um designer que desenha no FigCraft, marcadores de deploy",
     items: {
       operationsSource: "Conecte o TaskTrooper Telemetry em Configurações e ele vira sozinho uma fonte de dados de Operações: gráficos RED, logs, traces, erros e endpoints de cada componente.",
       agentTools: "Os agentes recebem as ferramentas de telemetria que sua função precisa: análise de causa raiz por endpoint, SLOs, monitores e testes de carga. Só podem alterar ou excluir monitores e KPIs criados por um agente.",
       deployMarkers: "Cada deploy que entra no ar é marcado na telemetria conectada com seu commit, para que uma regressão apareça ao lado da versão que a causou.",
+      figcraftDesigner: "O ui-designer desenha no FigCraft: cada tarefa de design ganha seu próprio arquivo editável baseado no seu design system, cujas páginas você pode visualizar, abrir no FigCraft ou mostrar no Finder pela tarefa. FigCraft, VectorCraft e PhotoCraft são instalados em Configurações → Ambiente de desenvolvimento.",
       telemetryScreens: "Novas telas de telemetria: visão geral, mapa de serviços, infraestrutura, apps, profiling, uso de LLM e testes de carga.",
     },
   },

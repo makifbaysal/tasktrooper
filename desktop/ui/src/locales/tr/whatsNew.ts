@@ -9,11 +9,12 @@ export const whatsNew = {
     open: "Yenilikleri göster",
   },
   v0_3_20: {
-    title: "Operasyonlar'da TaskTrooper Telemetry, onu okuyup kullanan ajanlar, deploy işaretleri",
+    title: "Operasyonlar'da TaskTrooper Telemetry, FigCraft'ta çizen tasarımcı, deploy işaretleri",
     items: {
       operationsSource: "Ayarlar'da TaskTrooper Telemetry'yi bağla, kendiliğinden bir Operasyonlar veri kaynağı olur: her bileşen için RED grafikleri, loglar, trace'ler, hata kayıtları ve endpoint'ler.",
       agentTools: "Ajanlar rollerine gereken telemetri araçlarını alıyor: endpoint kök neden analizi, SLO'lar, monitörler ve yük testleri. Yalnızca bir ajanın oluşturduğu monitör ve KPI'ları değiştirip silebilirler.",
       deployMarkers: "Canlıya çıkan her deploy, bağlı telemetride commit'iyle işaretlenir; bir gerileme onu getiren sürümle yan yana görünür.",
+      figcraftDesigner: "ui-designer artık FigCraft'ta çiziyor: her tasarım görevi tasarım sisteminin üzerine kurulu, düzenlenebilir kendi dosyasını alır; sayfalarını görevden önizleyebilir, FigCraft'ta açabilir ya da Finder'da gösterebilirsin. FigCraft, VectorCraft ve PhotoCraft araçları Ayarlar → Geliştirme ortamı'ndan kurulur.",
       telemetryScreens: "Yeni telemetri ekranları: genel bakış, servis haritası, altyapı, uygulamalar, profiling, LLM kullanımı ve yük testleri.",
     },
   },
