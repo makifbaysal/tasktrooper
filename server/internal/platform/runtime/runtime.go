@@ -1089,6 +1089,7 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 		e.enableMCPOAuth(mcpService, mcpStore)
 		// Default MCP server catalog, seeded as a boot step after the board seed.
 		e.bootSeed.AddStep("mcp_servers", mcpService.SeedNewTemplates)
+		e.bootSeed.AddStep("artcraft_mcp_servers", mcpService.ReconcileArtCraft)
 		resolved, err := mcpService.ResolvedConfigs(ctx)
 		if err != nil {
 			log.Warn().Err(err).Msg("mcp server config resolve failed")

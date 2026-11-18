@@ -185,7 +185,7 @@ export const designSystem = {
     frames: "{count} Frames",
     loading: "Seite wird gerendert…",
     renderFailed: "Diese Seite konnte nicht gerendert werden.",
-    notInstalled: "FigCraft ist auf diesem Computer nicht installiert, daher können die Seiten hier nicht angezeigt werden. Installiere es über den ArtCraft Launcher.",
+    notInstalled: "FigCraft ist auf diesem Computer nicht installiert, daher können die Seiten hier nicht angezeigt werden. Installiere es unter Einstellungen → Entwicklungsumgebung (Design).",
     openFailed: "Die Datei konnte nicht in FigCraft geöffnet werden",
     zoomHint: "Klicke auf die Seite für die volle Größe; öffne sie in FigCraft für alle Ebenen.",
   },

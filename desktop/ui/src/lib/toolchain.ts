@@ -23,7 +23,8 @@ export const BASE_TOOLCHAIN: readonly ToolchainId[] = ["git", "claude-code"];
 
 export const AGENT_TOOLCHAIN: Readonly<Record<string, AgentToolNeeds>> = {
   "frontend-developer": { recommended: ["node", "chrome"], optional: [] },
-  "ui-designer": { recommended: ["chrome", "node"], optional: [] },
+  // FigCraft is where the designer draws; VectorCraft and PhotoCraft prepare the assets it imports.
+  "ui-designer": { recommended: ["chrome", "node", "figcraft"], optional: ["vectorcraft", "photocraft"] },
   "backend-developer": { recommended: [], optional: ["go", "jdk", "node", "dotnet", "rust", "docker"] },
   "mobile-developer": {
     recommended: [
@@ -155,11 +156,12 @@ export function preselectedIds(recommendations: readonly ToolchainRecommendation
   return recommendations.filter((entry) => entry.preselected).map((entry) => entry.id);
 }
 
-export type ToolchainGroupId = "basics" | "web" | "backend" | "mobile" | "data" | "games" | "infra";
+export type ToolchainGroupId = "basics" | "web" | "design" | "backend" | "mobile" | "data" | "games" | "infra";
 
 export const TOOLCHAIN_GROUPS: readonly { id: ToolchainGroupId; ids: readonly ToolchainId[] }[] = [
   { id: "basics", ids: ["homebrew", "git", "claude-code", "node", "python", "uv"] },
   { id: "web", ids: ["chrome"] },
+  { id: "design", ids: ["figcraft", "vectorcraft", "photocraft"] },
   // Node.js is under basics: the frontend and the tooling need it as much as a TypeScript service does.
   { id: "backend", ids: ["go", "jdk", "dotnet", "rust"] },
   {

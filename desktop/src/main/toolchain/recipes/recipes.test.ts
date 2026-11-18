@@ -240,6 +240,32 @@ describe("a pinned release binary", () => {
     expect(() => statSync(path.join(bin, "README"))).toThrow();
     expect(c.calls[0]?.args.slice(0, 1)).toEqual(["-xzf"]);
   });
+
+  it.skipIf(process.platform !== "darwin")("takes the ArtCraft CLI out of its release zip, pinned to GitHub's digest", async () => {
+    const staging = mkdtempSync(path.join(os.tmpdir(), "tt-figcraft-"));
+    const inner = path.join(staging, "figcraft-cli-0.18.1-macos-universal");
+    mkdirSync(inner);
+    writeFileSync(path.join(inner, "figcraft-cli"), "figcraft");
+    writeFileSync(path.join(inner, "README.md"), "not a program");
+    const zip = path.join(staging, "figcraft.zip");
+    execFileSync("/usr/bin/zip", ["-qr", zip, "figcraft-cli-0.18.1-macos-universal"], { cwd: staging });
+
+    const c = context(
+      "figcraft",
+      { platform: "darwin", which: (n) => (n === "tar" ? "tar" : null) },
+      { real: true, serve: (_url, dest) => copyFileSync(zip, dest) },
+    );
+    await run("figcraft", c);
+    expect(c.downloads[0]).toMatchObject({
+      url: "https://github.com/storytold/figcraft/releases/download/v0.18.1/figcraft-cli-0.18.1-macos-universal.zip",
+      sha256: "87efbca334e0925fce328ede159faef2df781b2a167d573888044127bfd4b0de",
+    });
+    const bin = path.join(c.workDir, ".local", "bin");
+    expect(readFileSync(path.join(bin, "figcraft-cli"), "utf8")).toBe("figcraft");
+    expect(statSync(path.join(bin, "figcraft-cli")).mode & 0o111).not.toBe(0);
+    expect(() => statSync(path.join(bin, "README.md"))).toThrow();
+    expect(c.calls[0]?.args.slice(0, 1)).toEqual(["-xf"]);
+  });
 });
 
 describe("npm and appium", () => {

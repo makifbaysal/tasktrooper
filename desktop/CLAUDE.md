@@ -348,7 +348,7 @@ the page half's `{mode, origin?, temporaryLocal?}`. `bridgeVersion` 2 added
 5 `toolchain` (required here, optional `toolchain?` on the page's half), 6
 `account.mcp` and `openKeys({mcp})` (optional `mcp?` on the page's half), 7
 `analytics.track()`/`identify()` (optional on the page's half).
-`ToolchainId` is the twenty-four ids in `TOOLCHAIN_IDS`, in the same order on
+`ToolchainId` is the twenty-seven ids in `TOOLCHAIN_IDS`, in the same order on
 both halves.
 
 ## Boot order (`whenReady`)

@@ -93,6 +93,7 @@ export const toolchain = {
     groups: {
       basics: "基础",
       web: "Web",
+      design: "设计",
       backend: "后端语言",
       mobile: "移动端",
       data: "数据",

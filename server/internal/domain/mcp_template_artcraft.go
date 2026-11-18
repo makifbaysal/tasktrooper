@@ -2,42 +2,98 @@ package domain
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 )
 
 // ArtCraft (getartcraft.com) is a suite of native creative apps — FigCraft for
 // interface design, VectorCraft, PhotoCraft, and the motion, audio, video and
-// CAD apps. The ArtCraft Launcher installs each app's CLI under
-// ~/artCraft/<app>-cli/<app>-cli, and every CLI serves MCP on stdio with
-// `<app>-cli mcp`. A template starts switched on when that CLI is installed
-// on this computer, and every one is "listed": it reaches only the agents that
-// name it (the ui-designer names figcraft, vectorcraft and photocraft).
+// CAD apps. Every app's CLI serves MCP on stdio with `<app>-cli mcp`. A
+// template starts switched on when that CLI is found on this computer
+// (ArtCraftCLI), the desktop app installs the designer's three when they are
+// missing, and every one is "listed": it reaches only the agents that name it
+// (the ui-designer names figcraft, vectorcraft and photocraft).
 
-// ArtCraftDir is where the ArtCraft Launcher installs the apps' CLIs.
-func ArtCraftDir() string {
-	if dir := os.Getenv("TASKTROOPER_ARTCRAFT_DIR"); dir != "" {
-		return dir
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "artCraft"
-	}
-	return filepath.Join(home, "artCraft")
+// ArtCraftApps names every ArtCraft app with an MCP template, in template order.
+var ArtCraftApps = []string{"figcraft", "vectorcraft", "photocraft", "anicraft", "effectcraft", "filmcraft", "lightcraft", "solidcraft", "soundcraft"}
+
+var artCraftBundles = map[string]string{
+	"figcraft": "FigCraft", "vectorcraft": "VectorCraft", "photocraft": "PhotoCraft",
+	"anicraft": "AniCraft", "effectcraft": "EffectCraft", "filmcraft": "FilmCraft",
+	"lightcraft": "LightCraft", "solidcraft": "SolidCraft", "soundcraft": "SoundCraft",
 }
 
-// ArtCraftCLI is the path of one ArtCraft app's CLI, e.g. "figcraft".
-func ArtCraftCLI(app string) string {
+func IsArtCraftApp(id string) bool {
+	_, ok := artCraftBundles[id]
+	return ok
+}
+
+func artCraftExe(app string) string {
 	name := app + "-cli"
 	if runtime.GOOS == "windows" {
-		return filepath.Join(ArtCraftDir(), name, name+".exe")
+		return name + ".exe"
 	}
-	return filepath.Join(ArtCraftDir(), name, name)
+	return name
+}
+
+// ArtCraftInstallPath is where the desktop app's toolchain installer puts an
+// ArtCraft CLI (desktop/src/main/toolchain/locations.ts#userBinDir).
+func ArtCraftInstallPath(app string) string {
+	home := homeOrTemp()
+	if runtime.GOOS == "windows" {
+		local := os.Getenv("LOCALAPPDATA")
+		if local == "" {
+			local = filepath.Join(home, "AppData", "Local")
+		}
+		return filepath.Join(local, "Programs", app+"-cli", artCraftExe(app))
+	}
+	return filepath.Join(home, ".local", "bin", artCraftExe(app))
+}
+
+// artCraftCandidates is every place an ArtCraft CLI is found, in order: an
+// override, the ~/artCraft folder the ArtCraft CLIs are usually unpacked to,
+// this app's own install, the app bundle (macOS ships some CLIs inside it),
+// then PATH. The desktop toolchain detector looks in the same places.
+func artCraftCandidates(app string) []string {
+	exe := artCraftExe(app)
+	home := homeOrTemp()
+	var out []string
+	if dir := os.Getenv("TASKTROOPER_ARTCRAFT_DIR"); dir != "" {
+		out = append(out, filepath.Join(dir, app+"-cli", exe))
+	}
+	out = append(out, filepath.Join(home, "artCraft", app+"-cli", exe), ArtCraftInstallPath(app))
+	if runtime.GOOS == "darwin" {
+		bundle := artCraftBundles[app] + ".app"
+		out = append(out,
+			filepath.Join("/Applications", bundle, "Contents", "MacOS", exe),
+			filepath.Join(home, "Applications", bundle, "Contents", "MacOS", exe),
+		)
+	}
+	if found, err := exec.LookPath(exe); err == nil {
+		out = append(out, found)
+	}
+	return out
+}
+
+// ArtCraftCLI is the path of one ArtCraft app's CLI, e.g. "figcraft": the
+// first copy found, else where this app's installer would put it.
+func ArtCraftCLI(app string) string {
+	for _, candidate := range artCraftCandidates(app) {
+		if isFile(candidate) {
+			return candidate
+		}
+	}
+	return ArtCraftInstallPath(app)
 }
 
 // ArtCraftInstalled reports whether an ArtCraft app's CLI is on this computer.
 func ArtCraftInstalled(app string) bool {
-	info, err := os.Stat(ArtCraftCLI(app))
+	return isFile(ArtCraftCLI(app))
+}
+
+func isFile(path string) bool {
+	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
 }
 

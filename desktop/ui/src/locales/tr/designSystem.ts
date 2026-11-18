@@ -187,7 +187,7 @@ export const designSystem: DesignSystemDict = {
     frames: "{count} çerçeve",
     loading: "Sayfa hazırlanıyor…",
     renderFailed: "Bu sayfa gösterilemedi.",
-    notInstalled: "Bu bilgisayarda FigCraft kurulu değil, sayfalar burada gösterilemiyor. Tasarımı görmek ve açmak için ArtCraft Launcher'dan kurun.",
+    notInstalled: "Bu bilgisayarda FigCraft kurulu değil, sayfalar burada gösterilemiyor. Ayarlar → Geliştirme ortamı (Tasarım) bölümünden kurabilirsiniz.",
     openFailed: "Dosya FigCraft'ta açılamadı",
     zoomHint: "Tam boy görmek için sayfaya tıklayın; tüm katmanlar için FigCraft'ta açın.",
   },

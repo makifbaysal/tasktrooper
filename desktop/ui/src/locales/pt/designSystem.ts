@@ -185,7 +185,7 @@ export const designSystem = {
     frames: "{count} frames",
     loading: "Renderizando a página…",
     renderFailed: "Não foi possível renderizar esta página.",
-    notInstalled: "O FigCraft não está instalado neste computador, então as páginas não podem ser mostradas aqui. Instale-o pelo ArtCraft Launcher.",
+    notInstalled: "O FigCraft não está instalado neste computador, então as páginas não podem ser mostradas aqui. Instale-o em Configurações → Ambiente de desenvolvimento (Design).",
     openFailed: "Não foi possível abrir o arquivo no FigCraft",
     zoomHint: "Clique na página para vê-la em tamanho real; abra no FigCraft para ver todas as camadas.",
   },

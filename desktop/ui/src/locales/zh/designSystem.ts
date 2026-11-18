@@ -183,7 +183,7 @@ export const designSystem = {
     frames: "{count} 个画框",
     loading: "正在渲染页面…",
     renderFailed: "无法渲染此页面。",
-    notInstalled: "此电脑未安装 FigCraft，无法在此显示页面。请通过 ArtCraft Launcher 安装。",
+    notInstalled: "此电脑未安装 FigCraft，无法在此显示页面。请在 设置 → 开发环境（设计）中安装。",
     openFailed: "无法在 FigCraft 中打开文件",
     zoomHint: "点击页面查看原尺寸；在 FigCraft 中打开可查看所有图层。",
   },

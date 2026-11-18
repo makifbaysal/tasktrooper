@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -334,4 +335,38 @@ func (s *ServiceSuite) TestAServerAddedByHandUnderATemplateIDIsLeftAsItWasMade()
 
 func TestServiceSuite(t *testing.T) {
 	suite.Run(t, new(ServiceSuite))
+}
+
+func fakeArtCraftCLI(t interface{ TempDir() string }, app string) (dir, cli string) {
+	dir = t.TempDir()
+	cli = filepath.Join(dir, app+"-cli", app+"-cli")
+	_ = os.MkdirAll(filepath.Dir(cli), 0o755)
+	_ = os.WriteFile(cli, []byte("#!/bin/sh\n"), 0o755)
+	return dir, cli
+}
+
+// An ArtCraft app installed after the first launch — by the ArtCraft
+// Launcher, an app bundle or the toolchain installer — is picked up at the
+// next boot, wherever it is, and switched on once; after that its switch is
+// the person's.
+func (s *ServiceSuite) TestArtCraftFoundAfterSeedingIsPointedAtAndSwitchedOnOnce() {
+	ctx := context.Background()
+	s.T().Setenv("TASKTROOPER_ARTCRAFT_DIR", filepath.Join(s.T().TempDir(), "none"))
+	s.T().Setenv("HOME", s.T().TempDir())
+	s.T().Setenv("PATH", "")
+	s.Require().NoError(s.svc.SeedNewTemplates(ctx))
+	s.False(s.store.servers["figcraft"].Enabled, "not installed yet")
+
+	dir, cli := fakeArtCraftCLI(s.T(), "figcraft")
+	s.T().Setenv("TASKTROOPER_ARTCRAFT_DIR", dir)
+	s.Require().NoError(s.svc.ReconcileArtCraft(ctx))
+	s.True(s.store.servers["figcraft"].Enabled)
+	s.Equal(cli, s.store.servers["figcraft"].Command)
+	s.False(s.store.servers["vectorcraft"].Enabled, "still not installed")
+
+	off := s.store.servers["figcraft"]
+	off.Enabled = false
+	s.store.servers["figcraft"] = off
+	s.Require().NoError(s.svc.ReconcileArtCraft(ctx))
+	s.False(s.store.servers["figcraft"].Enabled, "switched off by the person stays off")
 }

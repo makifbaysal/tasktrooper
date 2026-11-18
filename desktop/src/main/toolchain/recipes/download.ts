@@ -84,7 +84,9 @@ async function unpack(ctx: StepContext, spec: BinarySpec, archive: string, dir: 
   await rm(scratch, { recursive: true, force: true });
   await mkdir(scratch, { recursive: true });
   try {
-    await execOrFail(ctx, ctx.host.which("tar") ?? "tar", ["-xzf", archive, "-C", scratch], `Unpacking ${path.basename(archive)}`);
+    // bsdtar — macOS's and Windows' own tar — reads zip as well; GNU tar does not, and no zip is pinned for Linux.
+    const flags = spec.archive === "zip" ? "-xf" : "-xzf";
+    await execOrFail(ctx, ctx.host.which("tar") ?? "tar", [flags, archive, "-C", scratch], `Unpacking ${path.basename(archive)}`);
     for (const name of spec.files ?? [spec.name]) {
       const found = await findIn(scratch, exe(name));
       if (!found) throw new InstallError(`${exe(name)} was not in ${path.basename(archive)}.`);
@@ -103,7 +105,7 @@ export const binaryDownload: InstallerFactory<"binary-download"> = (spec, tool, 
   const exe = (name: string): string => (win ? `${name}.exe` : name);
   const join = win ? path.win32.join : path.posix.join;
   const dir = userBinDir(host, spec.name);
-  const programs = (spec.archive === "tar.gz" ? (spec.files ?? [spec.name]) : [spec.name]).map(exe);
+  const programs = (spec.archive === "tar.gz" || spec.archive === "zip" ? (spec.files ?? [spec.name]) : [spec.name]).map(exe);
   return {
     installKind: "auto",
     method: "GitHub release",

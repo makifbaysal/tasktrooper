@@ -62,6 +62,93 @@ const OSV = (asset: string, sha256: string): PinnedAsset => ({
   sha256,
 });
 
+/**
+ * The ArtCraft apps' CLIs (github.com/storytold/<app>), with the sha256 digests
+ * GitHub lists for each asset: a universal zip of the CLI alone on macOS, the
+ * portable zip (CLI beside the app) on Windows, the tarball's `bin/` on Linux.
+ */
+const ARTCRAFT_RELEASES = {
+  figcraft: {
+    version: "0.18.1",
+    darwin: "87efbca334e0925fce328ede159faef2df781b2a167d573888044127bfd4b0de",
+    winX64: "158563f240eea42b939c328569dcf0d1b55545d89cbf035bfd5d354f351b0762",
+    winArm64: "0be46bc30645d2366465d35026204cc32b5eaecde90454dbceb85781891533ac",
+    linuxX64: "8276d2ac55c6f77f7af3a411a9b00415d3feb0b59607a54523311340e653fc19",
+    linuxArm64: "b27dee10be5db50def03dee3be470bc2f9ce508be1690e75b4765354d2b89c88",
+  },
+  vectorcraft: {
+    version: "0.24.1",
+    darwin: "7f0c8261e5c831d9681e48272f9ba73bf8702dbf6ceb84f98177c7c007faddf2",
+    winX64: "589d1c9c7090a05a033462af04042ee0a9dd3a188d7440a9f965799d2d66161d",
+    winArm64: "885df2b888c3d670c6b0a785813039f9d0426eea00ed750da7ec4cbb0bf8d612",
+    linuxX64: "a090514252fde145495ac6fc65d6ff1311d698998e57ba434d5d0896c3d1fbfa",
+    linuxArm64: "4b9735489789d336c1ca4344689eb4a1d4a3f0b6e8db7f8c0659c24d10653455",
+  },
+  photocraft: {
+    version: "0.23.1",
+    darwin: "a6ecdc6d4add02881642bda0a0b191b4974118651f2ec5641dc71b2c3ff4b752",
+    winX64: "6317e764ecfa804227c38079311bea489283ab383ef040c81ef2fd6d86bd60b1",
+    winArm64: "f02f0e754072836355b4aa8c46496fb0acff18a5fc780084bb4a40a2d9e1ab76",
+    linuxX64: "4383aef67a07cc370ad250a6ed60015205d3e6c463faf3ff4b0f67b8178ccfc8",
+    linuxArm64: "fcc81c38ae62c72fa9f4fd1ec3d18396493ba261662792d6995cc35905ce71d2",
+  },
+} as const;
+
+type ArtCraftApp = keyof typeof ARTCRAFT_RELEASES;
+
+function artCraftTool<K extends ArtCraftApp>(id: K, label: string): ToolDefinition & { readonly id: K } {
+  const r = ARTCRAFT_RELEASES[id];
+  const base = `https://github.com/storytold/${id}/releases/download/v${r.version}`;
+  const asset = (file: string, sha256: string): PinnedAsset => ({ url: `${base}/${file}`, sha256 });
+  const cli = `${id}-cli`;
+  const appName = label.split(" ")[0] ?? label;
+  const mac = asset(`${cli}-${r.version}-macos-universal.zip`, r.darwin);
+  return {
+    id,
+    runtime: "bin-dir",
+    label,
+    docsUrl: `https://getartcraft.com/apps/${id}`,
+    affectsRuntime: true,
+    recipes: {
+      darwin: { install: { kind: "binary-download", name: cli, archive: "zip", assets: { x64: mac, arm64: mac } } },
+      win32: {
+        install: {
+          kind: "binary-download",
+          name: cli,
+          archive: "zip",
+          assets: {
+            x64: asset(`${id}-${r.version}-windows-x64-portable.zip`, r.winX64),
+            arm64: asset(`${id}-${r.version}-windows-arm64-portable.zip`, r.winArm64),
+          },
+        },
+      },
+      linux: {
+        install: {
+          kind: "binary-download",
+          name: cli,
+          archive: "tar.gz",
+          assets: {
+            x64: asset(`${id}-${r.version}-linux-x86_64.tar.gz`, r.linuxX64),
+            arm64: asset(`${id}-${r.version}-linux-aarch64.tar.gz`, r.linuxArm64),
+          },
+        },
+      },
+    },
+    // Wherever the ArtCraft Launcher, an app bundle or a hand-made folder put it,
+    // in the same order the backend looks (server/internal/domain/mcp_template_artcraft.go).
+    detect: binary({
+      names: [cli],
+      versionArgs: ["--version"],
+      extraDirs: (kit) => [
+        path.join(kit.home, "artCraft", cli),
+        userBinDir(kit, cli),
+        `/Applications/${appName}.app/Contents/MacOS`,
+        path.join(kit.home, "Applications", `${appName}.app`, "Contents", "MacOS"),
+      ],
+    }),
+  };
+}
+
 const home = (kit: ProbeKit, ...parts: string[]): string => path.join(kit.home, ...parts);
 
 const DEFINITIONS: { readonly [K in ToolchainId]: ToolDefinition & { readonly id: K } } = {
@@ -477,6 +564,9 @@ const DEFINITIONS: { readonly [K in ToolchainId]: ToolDefinition & { readonly id
       linux: anyOf(binary({ names: ["unityhub"] }), file(() => ["/opt/unityhub/unityhub"], "Unity Hub")),
     }),
   },
+  figcraft: artCraftTool("figcraft", "FigCraft (ArtCraft)"),
+  vectorcraft: artCraftTool("vectorcraft", "VectorCraft (ArtCraft)"),
+  photocraft: artCraftTool("photocraft", "PhotoCraft (ArtCraft)"),
 };
 
 export const TOOLCHAIN_DEFINITIONS: Readonly<Record<ToolchainId, ToolDefinition>> = DEFINITIONS;

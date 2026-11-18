@@ -87,8 +87,8 @@ export type InstallSpec =
       readonly name: string;
       readonly assets: Readonly<Partial<Record<HostArch, PinnedAsset>>>;
       /** Absent: the asset is the program itself. */
-      readonly archive?: "gz" | "tar.gz";
-      /** What to take out of a `tar.gz`; `[name]` by default. */
+      readonly archive?: "gz" | "tar.gz" | "zip";
+      /** What to take out of a `tar.gz` or `zip`; `[name]` by default. */
       readonly files?: readonly string[];
     }
   | {
