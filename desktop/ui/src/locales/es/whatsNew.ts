@@ -8,6 +8,15 @@ export const whatsNew = {
     help: "Mira qué ha cambiado en la última versión de TaskTrooper.",
     open: "Mostrar novedades",
   },
+  v0_3_20: {
+    title: "TaskTrooper Telemetry en Operaciones, agentes que la leen y actúan, marcas de despliegue",
+    items: {
+      operationsSource: "Conecta TaskTrooper Telemetry en Ajustes y se convierte sola en una fuente de datos de Operaciones: gráficos RED, logs, trazas, errores y endpoints de cada componente.",
+      agentTools: "Los agentes reciben las herramientas de telemetría que su rol necesita: análisis de causa raíz por endpoint, SLOs, monitores y pruebas de carga. Solo pueden cambiar o borrar monitores y KPIs creados por un agente.",
+      deployMarkers: "Cada despliegue que entra en producción se marca en la telemetría conectada con su commit, así una regresión aparece junto a la versión que la causó.",
+      telemetryScreens: "Nuevas pantallas de telemetría: resumen, mapa de servicios, infraestructura, apps, profiling, uso de LLM y pruebas de carga.",
+    },
+  },
   v0_3_19: {
     title: "QA que prueba y termina, pruebas automatizadas por repositorio, una vista previa por tarea",
     items: {

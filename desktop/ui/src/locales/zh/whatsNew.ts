@@ -8,6 +8,15 @@ export const whatsNew = {
     help: "查看 TaskTrooper 最新版本的更新内容。",
     open: "显示新功能",
   },
+  v0_3_20: {
+    title: "运营中的 TaskTrooper Telemetry、能读取并操作它的智能体、部署标记",
+    items: {
+      operationsSource: "在设置中连接 TaskTrooper Telemetry，它会自动成为运营数据源：每个组件的 RED 图表、日志、链路、错误和端点。",
+      agentTools: "智能体获得其角色所需的遥测工具：端点根因分析、SLO、监控和压测。它们只能修改或删除由智能体创建的监控和 KPI。",
+      deployMarkers: "每次上线的部署都会带着提交记录标记到已连接的遥测中，回归问题会和引发它的版本并排显示。",
+      telemetryScreens: "新的遥测页面：概览、服务地图、基础设施、应用、性能剖析、LLM 用量和压测。",
+    },
+  },
   v0_3_19: {
     title: "会测试并收尾的 QA、按仓库的自动化测试、每个任务一个预览",
     items: {

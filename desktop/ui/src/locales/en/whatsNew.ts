@@ -10,6 +10,15 @@ export const whatsNew = {
     help: "See what changed in the latest version of TaskTrooper.",
     open: "Show what's new",
   },
+  v0_3_20: {
+    title: "TaskTrooper Telemetry in Operations, agents that read and act on it, deploy markers",
+    items: {
+      operationsSource: "Connect TaskTrooper Telemetry in Settings and it becomes an Operations data source by itself: RED charts, logs, traces, error issues and endpoints for each component.",
+      agentTools: "Agents get the telemetry tools their role needs: endpoint root-cause analysis, SLOs, monitors and load tests. They can only change or delete monitors and KPIs an agent created.",
+      deployMarkers: "Every deploy that goes live is marked in the connected telemetry with its commit, so a regression lines up with the release that caused it.",
+      telemetryScreens: "New telemetry screens: overview, service map, infrastructure, apps, profiling, LLM usage and load tests.",
+    },
+  },
   v0_3_19: {
     title: "QA that tests and finishes, automation tests per repository, a preview per task",
     items: {
