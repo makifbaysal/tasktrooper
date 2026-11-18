@@ -82,8 +82,22 @@ type Service struct {
 }
 
 func NewService(root string, tool Tool, bases BaseProjects) *Service {
-	return &Service{root: root, tool: tool, bases: bases}
+	return &Service{root: filepath.Clean(root), tool: tool, bases: bases}
 }
+
+// contain returns file cleaned when it lies under the service's root, and
+// false otherwise. Every path the service reads, writes or hands to FigCraft
+// goes through it, so a crafted id or path never reaches outside the design
+// files folder.
+func (s *Service) contain(file string) (string, bool) {
+	clean := filepath.Clean(file)
+	if strings.Contains(clean, "..") || !strings.HasPrefix(clean, s.root+string(filepath.Separator)) {
+		return "", false
+	}
+	return clean, true
+}
+
+var errOutsideRoot = errors.New("design file path is outside the design files folder")
 
 func (s *Service) Root() string { return s.root }
 
@@ -127,7 +141,12 @@ func (s *Service) PrepareTask(ctx context.Context, repositoryID, taskID uuid.UUI
 		TaskFile:       s.TaskFile(taskID),
 		RepositoryFile: s.RepositoryFile(repositoryID),
 	}
-	out.RepoExists = fileExists(out.RepositoryFile)
+	taskFile, ok := s.contain(out.TaskFile)
+	repoFile, ok2 := s.contain(out.RepositoryFile)
+	if !ok || !ok2 {
+		return out, errOutsideRoot
+	}
+	out.RepoExists = fileExists(repoFile)
 	if s.bases != nil {
 		base, err := s.bases.BaseProject(ctx, repositoryID)
 		if err != nil {
@@ -135,27 +154,30 @@ func (s *Service) PrepareTask(ctx context.Context, repositoryID, taskID uuid.UUI
 		}
 		if base != nil {
 			out.ProjectFile = s.ProjectFile(*base)
-			out.ProjectExists = fileExists(out.ProjectFile)
+			if projectFile, ok := s.contain(out.ProjectFile); ok {
+				out.ProjectFile = projectFile
+				out.ProjectExists = fileExists(projectFile)
+			}
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(out.TaskFile), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(taskFile), 0o755); err != nil {
 		return out, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if fileExists(out.TaskFile) {
+	if fileExists(taskFile) {
 		out.TaskExists = true
 		return out, nil
 	}
 	seed := ""
 	switch {
 	case out.RepoExists:
-		seed = out.RepositoryFile
+		seed = repoFile
 	case out.ProjectExists:
 		seed = out.ProjectFile
 	}
 	if seed != "" {
-		if err := copyFile(seed, out.TaskFile); err != nil {
+		if err := copyFile(seed, taskFile); err != nil {
 			return out, fmt.Errorf("seed the task's design file: %w", err)
 		}
 		out.SeededFrom = seed
@@ -167,8 +189,8 @@ func (s *Service) PrepareTask(ctx context.Context, repositoryID, taskID uuid.UUI
 // Promote makes an approved design-system task's file the design system file
 // of what each approved version targets.
 func (s *Service) Promote(taskID uuid.UUID, approved []domain.DesignSystem) {
-	src := s.TaskFile(taskID)
-	if len(approved) == 0 || !fileExists(src) {
+	src, ok := s.contain(s.TaskFile(taskID))
+	if !ok || len(approved) == 0 || !fileExists(src) {
 		return
 	}
 	s.mu.Lock()
@@ -183,6 +205,10 @@ func (s *Service) Promote(taskID uuid.UUID, approved []domain.DesignSystem) {
 		default:
 			continue
 		}
+		dst, ok := s.contain(dst)
+		if !ok {
+			continue
+		}
 		err := os.MkdirAll(filepath.Dir(dst), 0o755)
 		if err == nil {
 			err = copyFile(src, dst)
@@ -195,6 +221,10 @@ func (s *Service) Promote(taskID uuid.UUID, approved []domain.DesignSystem) {
 
 func (s *Service) Manifest(ctx context.Context, file string) Manifest {
 	m := Manifest{Path: file, Installed: s.Installed(), Pages: []Page{}}
+	file, ok := s.contain(file)
+	if !ok {
+		return m
+	}
 	st, err := os.Stat(file)
 	if err != nil {
 		return m
@@ -221,6 +251,10 @@ func (s *Service) Manifest(ctx context.Context, file string) Manifest {
 func (s *Service) Preview(ctx context.Context, file string, pageID int64, scale float64) (string, error) {
 	if !s.Installed() {
 		return "", ErrNotInstalled
+	}
+	file, ok := s.contain(file)
+	if !ok {
+		return "", ErrNoFile
 	}
 	st, err := os.Stat(file)
 	if err != nil {
@@ -278,7 +312,8 @@ func (s *Service) prunePreviews(dir, prefix string) {
 }
 
 func (s *Service) Open(ctx context.Context, file string) error {
-	if !fileExists(file) {
+	file, ok := s.contain(file)
+	if !ok || !fileExists(file) {
 		return ErrNoFile
 	}
 	if s.tool == nil {
@@ -288,7 +323,8 @@ func (s *Service) Open(ctx context.Context, file string) error {
 }
 
 func (s *Service) Reveal(ctx context.Context, file string) error {
-	if !fileExists(file) {
+	file, ok := s.contain(file)
+	if !ok || !fileExists(file) {
 		return ErrNoFile
 	}
 	if s.tool == nil {

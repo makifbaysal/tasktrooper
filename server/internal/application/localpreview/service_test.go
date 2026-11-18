@@ -364,3 +364,13 @@ func TestCloseIsSafeWithNothingActive(t *testing.T) {
 		t.Fatalf("active = %d after Close", len(s.active))
 	}
 }
+
+func TestLineWriterSplitsLinesAcrossWrites(t *testing.T) {
+	var got []string
+	w := &lineWriter{onLine: func(l string) { got = append(got, l) }}
+	_, _ = w.Write([]byte("one\r\ntw"))
+	_, _ = w.Write([]byte("o\nthree"))
+	require.Equal(t, []string{"one", "two"}, got)
+	require.NoError(t, w.Close())
+	require.Equal(t, []string{"one", "two", "three"}, got)
+}

@@ -88,3 +88,19 @@ func TestAPagePreviewIsRenderedOncePerVersionOfTheFile(t *testing.T) {
 	_, err = svc.Preview(context.Background(), svc.TaskFile(task), 99, 1)
 	assert.ErrorIs(t, err, designfile.ErrUnknownPage)
 }
+
+func TestAFileOutsideTheDesignFilesFolderIsNeverTouched(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "secret.figcraft")
+	require.NoError(t, os.WriteFile(outside, []byte("x"), 0o644))
+	root := t.TempDir()
+	svc := designfile.NewService(root, &fakeTool{}, nil)
+
+	for _, file := range []string{outside, filepath.Join(root, "..", filepath.Base(outside)), root} {
+		m := svc.Manifest(context.Background(), file)
+		assert.False(t, m.Exists, file)
+		_, err := svc.Preview(context.Background(), file, 1, 1)
+		assert.ErrorIs(t, err, designfile.ErrNoFile, file)
+		assert.ErrorIs(t, svc.Open(context.Background(), file), designfile.ErrNoFile, file)
+		assert.ErrorIs(t, svc.Reveal(context.Background(), file), designfile.ErrNoFile, file)
+	}
+}
