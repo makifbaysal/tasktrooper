@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { KOKORO_STYLES, SUPERTONIC_STYLES } from "./files.js";
+import { TINYVOCA_MODEL, TINYVOCA_STYLES } from "./files.js";
 import { startSpeechWorker, type SpeechEngine } from "./speech-worker.js";
 
 /**
@@ -63,7 +63,7 @@ describe("startSpeechWorker", () => {
   });
 
   it("passes the language and the style on to the worker", async () => {
-    const engine = await startSpeechWorker(fakeWorker(FAKE), { ...init, engine: "kokoro" });
+    const engine = await startSpeechWorker(fakeWorker(FAKE), { ...init, engine: "tinyvoca" });
     const got: number[][] = [];
     for await (const pcm of engine.stream("say", { lang: "en", speed: 1, style: "bm_george", signal: new AbortController().signal })) got.push(Array.from(pcm));
     expect(got.map((c) => c[2])).toEqual([1, 1, 1]);
@@ -125,11 +125,11 @@ describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.
   });
 });
 
-describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", "kokoro_v1_q8.onnx")))("the real English voice", () => {
-  it("speaks an English sentence in every bundled style: audible, a sane length, one pass per sentence", { timeout: 180_000 }, async () => {
-    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { engine: "kokoro", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
+describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", TINYVOCA_MODEL)))("the real English voice", () => {
+  it("speaks English in both voices: audible, a sane length, one chunk per sentence", { timeout: 120_000 }, async () => {
+    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { engine: "tinyvoca", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 1 });
     try {
-      for (const style of KOKORO_STYLES) {
+      for (const style of TINYVOCA_STYLES) {
         const chunks: Float32Array[] = [];
         for await (const pcm of engine.stream("Hello! The build is done.", { lang: "en", speed: 1, style, signal: new AbortController().signal })) chunks.push(pcm);
         expect(chunks).toHaveLength(2);
@@ -139,36 +139,7 @@ describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.
         expect(seconds).toBeLessThan(5);
         const rms = Math.sqrt(all.reduce((a, b) => a + b * b, 0) / all.length);
         expect(rms).toBeGreaterThan(0.01);
-        expect(all.every(Number.isFinite)).toBe(true);
-      }
-    } finally {
-      await engine.release();
-    }
-  });
-});
-
-describe.skipIf(process.env.TASKTROOPER_VOICE_SMOKE !== "1" || !existsSync(path.join(dist, "voice", "supertonic_vector_estimator.onnx")))("the real Supertonic voice", () => {
-  it("speaks Turkish and English in one worker, every style: audible, a sane length, a short first pass", { timeout: 300_000 }, async () => {
-    const engine = await startSpeechWorker(path.join(dist, "tts-worker.cjs"), { engine: "supertonic", voiceDir: path.join(dist, "voice"), wasmDir: dist, numThreads: 2 });
-    try {
-      const cases = [
-        ["tr", "Derleme dört dakikada bitti, ama ödeme modülünde iki test başarısız oldu."],
-        ["en", "The build finished in four minutes, but two tests failed in the payment module."],
-      ] as const;
-      for (const style of SUPERTONIC_STYLES) {
-        for (const [lang, text] of cases) {
-          const chunks: Float32Array[] = [];
-          for await (const pcm of engine.stream(text, { lang, speed: 1, style, signal: new AbortController().signal })) chunks.push(pcm);
-          expect(chunks).toHaveLength(3);
-          expect(chunks[0].length / 44_100).toBeLessThan(2.5);
-          const all = chunks.flatMap((c) => Array.from(c));
-          const seconds = all.length / 44_100;
-          expect(seconds).toBeGreaterThan(2);
-          expect(seconds).toBeLessThan(8);
-          const rms = Math.sqrt(all.reduce((a, b) => a + b * b, 0) / all.length);
-          expect(rms).toBeGreaterThan(0.01);
-          expect(all.every(Number.isFinite)).toBe(true);
-        }
+        expect(all.every((x) => Number.isFinite(x) && Math.abs(x) <= 0.99)).toBe(true);
       }
     } finally {
       await engine.release();

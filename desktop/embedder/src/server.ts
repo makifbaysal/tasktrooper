@@ -80,13 +80,12 @@ export const SPEECH_LANGUAGES: readonly SpeechLanguage[] = ["tr", "en"];
 /** Every engine a request may name, and the languages each speaks; one this copy has no files for answers 503. */
 export const SPEECH_ENGINES: Readonly<Record<SpeechEngineId, readonly SpeechLanguage[]>> = {
   ema: ["tr"],
-  kokoro: ["en"],
-  supertonic: ["tr", "en"],
+  tinyvoca: ["en"],
 };
 /** The engine a request without one gets, when this copy has it. */
-export const DEFAULT_ENGINES: Readonly<Record<SpeechLanguage, SpeechEngineId>> = { tr: "ema", en: "kokoro" };
-/** Each engine's own rate: EMA Lightning 48 kHz, Kokoro 24 kHz, Supertonic 44.1 kHz. */
-export const SPEECH_SAMPLE_RATES: Readonly<Record<SpeechEngineId, number>> = { ema: 48_000, kokoro: 24_000, supertonic: 44_100 };
+export const DEFAULT_ENGINES: Readonly<Record<SpeechLanguage, SpeechEngineId>> = { tr: "ema", en: "tinyvoca" };
+/** Each engine's own rate: EMA Lightning 48 kHz, tiny-voca 24 kHz. */
+export const SPEECH_SAMPLE_RATES: Readonly<Record<SpeechEngineId, number>> = { ema: 48_000, tinyvoca: 24_000 };
 /** A spoken reply, not a document: longer text is refused before any of it is read aloud. */
 export const MAX_SPEECH_CHARS = 4000;
 /** Room for MAX_SPEECH_CHARS with every one of them escaped in JSON. */
@@ -440,7 +439,7 @@ async function embeddings(req: IncomingMessage, res: ServerResponse, life: LazyM
  * SPEECH_SAMPLE_RATES), and a chunked body of mono float32 little-endian PCM
  * (every platform this ships on is little endian, so the engine's own buffers
  * go out as they are). The first chunk is short (a second of EMA, the first
- * clause of Kokoro or Supertonic), so playback can start long before the text
+ * sentence of tiny-voca), so playback can start long before the text
  * is done.
  *
  * Without `engine`, the language's default engine (DEFAULT_ENGINES) speaks,

@@ -5,11 +5,11 @@
  * offers a voice on `/v1/audio/speech`.
  *
  * Bundled with the app rather than downloaded at run time, so the voice works
- * offline from the first launch. They come from a release of this repository
- * rather than the upstream model hub because EMA's upstream publishes PyTorch
- * checkpoints only, and so that every file the build fetches comes from one
- * place under one tag; `desktop/voice-models/README.md` is how they were made.
- * The tag is never moved: a new export is a new tag and new hashes here.
+ * offline from the first launch. EMA's come from a release of this repository
+ * because its upstream publishes PyTorch checkpoints only;
+ * `desktop/voice-models/README.md` is how they were made. The tag is never
+ * moved: a new export is a new tag and new hashes here. tiny-voca publishes
+ * the exact file it runs, so that one comes from its hub at a fixed revision.
  *
  * No imports, on purpose: the build script loads this file on its own.
  */
@@ -61,128 +61,46 @@ export const EMA_FILES: readonly VoiceFile[] = [
   NORMALIZER,
 ];
 
-export const KOKORO_MODEL = "kokoro_v1_q8.onnx";
-export const KOKORO_CONFIG = "kokoro.json";
+const TINYVOCA_REVISION = "1e73262226dbf4ef02e9df277e81aaa1db5ce16c";
+const TINYVOCA_HUB = `https://huggingface.co/n4ze3m/tiny-voca/resolve/${TINYVOCA_REVISION}`;
 
-/** Kokoro's styles bundled, by its own names: a/b American/British, f/m female/male. */
-export const KOKORO_STYLES: readonly string[] = ["af_heart", "af_bella", "af_nicole", "am_michael", "am_fenrir", "bf_emma", "bm_george"];
-export const KOKORO_DEFAULT_STYLE = "af_heart";
+/** The model, its phonemizer's dictionary and tables, and its config, in one GGUF file (`js/pack.mjs`'s). */
+export const TINYVOCA_MODEL = "tiny-voca-js.gguf";
+/** The CMU Pronouncing Dictionary's BSD license, which the phonemizer's dictionary comes under and has to travel with it. */
+export const CMUDICT_LICENSE = "LICENSE-cmudict.txt";
 
-export function kokoroStyleFile(style: string): string {
-  return `kokoro_${style}.bin`;
-}
+/** tiny-voca's two voices, by its own names: F2 female, M2 male. */
+export const TINYVOCA_STYLES: readonly string[] = ["F2", "M2"];
+export const TINYVOCA_DEFAULT_STYLE = "F2";
 
-export function misakiLexiconFile(accent: "us" | "gb"): string {
-  return `misaki_${accent}.json.gz`;
-}
-
-const STYLE_SHA256: Record<string, string> = {
-  af_heart: "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b",
-  af_bella: "f69d836209b78eb8c66e75e3cda491e26ea838a3674257e9d4e5703cbaf55c8b",
-  af_nicole: "cd2191ab31b914ed7b318416b0e4440fdf392ddad9106a060819aa600a64f59a",
-  am_michael: "1d1f21dd8da39c30705cd4c75d039d265e9bc4a2a93ed09bc9e1b1225eb95ba1",
-  am_fenrir: "c27989f741f7ee34d273a39d8a595cc0837d35f5ced9a29b7cc162614616df43",
-  bf_emma: "669fe0647f9dd04fcab92f1439a40eeb4c8b4ab1f82e4996fe3d918ce4a63b73",
-  bm_george: "c4b235a4c1f2cd3b939fed08b899ce9385638b763f7b73a59616c4fc9bd6c9bc",
-};
-
-/** Kokoro-82M, English only. */
-export const KOKORO_FILES: readonly VoiceFile[] = [
+/** tiny-voca, English only; fetched from its own model hub at a pinned revision, unchanged. */
+export const TINYVOCA_FILES: readonly VoiceFile[] = [
   {
-    name: KOKORO_CONFIG,
-    url: `${RELEASE}/${KOKORO_CONFIG}`,
-    sha256: "9a58ddb2adc7b7764d15c96c34f1e5bbc283e2f07443cf8cb0f79d46456db947",
-    sizeBytes: 946,
+    name: TINYVOCA_MODEL,
+    url: `${TINYVOCA_HUB}/gguf/${TINYVOCA_MODEL}`,
+    sha256: "8436ad1c9b57c3533c925588a1b3563f906079a89c081ac0bec9f31ad6e28653",
+    sizeBytes: 7_988_384,
   },
   {
-    name: KOKORO_MODEL,
-    url: `${RELEASE}/${KOKORO_MODEL}`,
-    sha256: "fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478",
-    sizeBytes: 92_361_116,
+    name: CMUDICT_LICENSE,
+    url: `${TINYVOCA_HUB}/phonemizer/LICENSE.cmudict`,
+    sha256: "bd4ce8e44170a5f9f481310ca85c51de3c4f851a65e679b40e603b143bd3542a",
+    sizeBytes: 1_754,
   },
-  {
-    name: misakiLexiconFile("us"),
-    url: `${RELEASE}/${misakiLexiconFile("us")}`,
-    sha256: "09cdaad4d8e023aead7e74fdd6069239700d0ede6addbb2330d47abd5322fa4c",
-    sizeBytes: 1_401_724,
-  },
-  {
-    name: misakiLexiconFile("gb"),
-    url: `${RELEASE}/${misakiLexiconFile("gb")}`,
-    sha256: "b3bb63084ffd8534c244d11c24e35cb1c01ba523373272b06a92fa1fe4ee858a",
-    sizeBytes: 1_495_541,
-  },
-  ...KOKORO_STYLES.map((style) => ({
-    name: kokoroStyleFile(style),
-    url: `${RELEASE}/${kokoroStyleFile(style)}`,
-    sha256: STYLE_SHA256[style],
-    sizeBytes: 522_240,
-  })),
-];
-
-export const SUPERTONIC_CONFIG = "supertonic_tts.json";
-export const SUPERTONIC_INDEXER = "supertonic_unicode_indexer.json";
-export const SUPERTONIC_GRAPHS = ["duration_predictor", "text_encoder", "vector_estimator", "vocoder"] as const;
-export type SupertonicGraph = (typeof SUPERTONIC_GRAPHS)[number];
-/** The OpenRAIL-M license the weights come under, which has to travel with them. */
-export const SUPERTONIC_LICENSE = "LICENSE-supertonic.txt";
-
-/** Supertonic's preset voices, by its own names: F female, M male. */
-export const SUPERTONIC_STYLES: readonly string[] = ["F1", "F2", "F3", "F4", "F5", "M1", "M2", "M3", "M4", "M5"];
-export const SUPERTONIC_DEFAULT_STYLE = "F1";
-
-export function supertonicGraphFile(graph: SupertonicGraph): string {
-  return `supertonic_${graph}.onnx`;
-}
-
-export function supertonicStyleFile(style: string): string {
-  return `supertonic_${style}.json`;
-}
-
-const SUPERTONIC_GRAPH_PINS: Record<SupertonicGraph, [string, number]> = {
-  duration_predictor: ["5079961d5194fb4c38329021955e515e5faf4743b1d6c45f2a1e9da181dce37f", 1_188_118],
-  text_encoder: ["3265749cbf22ccfdf673af99312772890905bd4a6065bd0229ad0f3545ec19f2", 9_701_677],
-  vector_estimator: ["172b4b2abfc179575ce78fefc95d97c39e00fc8f2f12f81dfdb7fbe31d6dea87", 65_669_107],
-  vocoder: ["a74defcdffd73ef66f8a38dfa4765deacd3f9bfdb10d52762d8611a7390cb6e0", 25_789_755],
-};
-
-const SUPERTONIC_STYLE_PINS: Record<string, [string, number]> = {
-  F1: ["bbdec6ee00231c2c742ad05483df5334cab3b52fda3ba38e6a07059c4563dbc2", 292_046],
-  F2: ["7c722c6a72707b1a77f035d67f0d1351ba187738e06f7683e8c72b1df3477fc6", 292_423],
-  F3: ["12f6ef2573baa2defa1128069cb59f203e3ab67c92af77b42df8a0e3a2f7c6ab", 290_794],
-  F4: ["c2fa764c1225a76dfc3e2c73e8aa4f70d9ee48793860eb34c295fff01c2e032b", 291_808],
-  F5: ["45966e73316415626cf41a7d1c6f3b4c70dbc1ba2bee5c1978ef0ce33244fc8d", 291_479],
-  M1: ["e35604687f5d23694b8e91593a93eec0e4eca6c0b02bb8ed69139ab2ea6b0a5b", 291_748],
-  M2: ["b76cbf62bac707c710cf0ae5aba5e31eea1a6339a9734bfae33ab98499534a50", 292_055],
-  M3: ["ea1ac35ccb91b0d7ecad533a2fbd0eec10c91513d8951e3b25fbba99954e159b", 290_198],
-  M4: ["ca8eefad4fcd989c9379032ff3e50738adc547eeb5e221b82593a6d7b3bac303", 291_522],
-  M5: ["dd22b92740314321f8ae11c5e87f8dd60d060f15dd3a632b5adf77f471f77af2", 291_469],
-};
-
-function pinned(name: string, [sha256, sizeBytes]: [string, number]): VoiceFile {
-  return { name, url: `${RELEASE}/${name}`, sha256, sizeBytes };
-}
-
-/** Supertonic 3, one model for Turkish and English; Turkish text goes through the normalizer first. */
-export const SUPERTONIC_FILES: readonly VoiceFile[] = [
-  pinned(SUPERTONIC_CONFIG, ["42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09", 8_253]),
-  pinned(SUPERTONIC_INDEXER, ["9bf7346e43883a81f8645c81224f786d43c5b57f3641f6e7671a7d6c493cb24f", 277_676]),
-  ...SUPERTONIC_GRAPHS.map((graph) => pinned(supertonicGraphFile(graph), SUPERTONIC_GRAPH_PINS[graph])),
-  ...SUPERTONIC_STYLES.map((style) => pinned(supertonicStyleFile(style), SUPERTONIC_STYLE_PINS[style])),
-  pinned(SUPERTONIC_LICENSE, ["0d944a9110fed9a9602d60e0423a272903e7bd21ab060490774efc77c2275e9f", 15_007]),
-  NORMALIZER,
 ];
 
 /** Everything the build stages into `voice/`, each file once. */
-export const VOICE_FILES: readonly VoiceFile[] = [...EMA_FILES, ...KOKORO_FILES, ...SUPERTONIC_FILES].filter(
+export const VOICE_FILES: readonly VoiceFile[] = [...EMA_FILES, ...TINYVOCA_FILES].filter(
   (file, i, all) => all.findIndex((f) => f.name === file.name) === i,
 );
 
+/** License texts the build appends to NOTICE.txt in full, in this order. */
+export const VOICE_LICENSES: readonly string[] = [CMUDICT_LICENSE];
+
 /**
- * Written beside the files as NOTICE.txt, followed by the full text of
- * SUPERTONIC_LICENSE (the build appends it). Apache-2.0 asks for attribution
- * where the files ship; OpenRAIL-M also for its use restrictions to be passed
- * on and for changed files to say they were changed.
+ * Written beside the files as NOTICE.txt, followed by the full text of each
+ * of VOICE_LICENSES (the build appends them). Apache-2.0 asks for attribution
+ * where the files ship; the CMU dictionary's BSD license for its notice.
  */
 export const VOICE_NOTICE = `Voice model files for TaskTrooper's Turkish and English voices.
 
@@ -196,39 +114,14 @@ normalizer.wasm
   normalizer-tr by Erdem Tuna, Apache License 2.0, compiled to WebAssembly.
   https://github.com/erdemtuna/normalizer-tr (commit 62264b76)
 
-kokoro_v1_q8.onnx, kokoro.json, kokoro_*.bin
-  Kokoro-82M v1.0 by hexgrad, Apache License 2.0, in the ONNX export (8-bit
-  quantized) and voice styles published by onnx-community.
-  https://huggingface.co/hexgrad/Kokoro-82M
-  https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX (revision 1939ad2a)
-  kokoro.json is that export's tokenizer vocabulary. The files are unchanged.
-
-misaki_us.json.gz, misaki_gb.json.gz
-  The American and British English pronunciation dictionaries of misaki by
-  hexgrad, Apache License 2.0 (misaki/data/*_gold.json and *_silver.json).
-  https://github.com/hexgrad/misaki (commit fba12365)
-  Repackaged: each accent's two dictionaries in one gzipped JSON object,
-  silver entries already in gold left out.
-
-supertonic_*.onnx, supertonic_tts.json, supertonic_unicode_indexer.json,
-supertonic_F1..F5.json, supertonic_M1..M5.json
-  Supertonic 3 by Supertone Inc., Copyright (c) 2026 Supertone Inc.,
-  under the BigScience OpenRAIL-M License (LICENSE-supertonic.txt, and in
-  full at the end of this file).
-  https://huggingface.co/Supertone/supertonic-3 (revision 3cadd1ee)
-  MODIFIED FILES: the four supertonic_*.onnx graphs were changed by
-  TaskTrooper: their weights of 4096 values or more were quantized to int8
-  per output channel, with DequantizeLinear nodes in front of the layers that
-  read them (each graph's metadata says so too). The configuration, the
-  character index and the ten voice styles are unchanged.
-
-  USE RESTRICTIONS. The Supertonic model and these derivatives of it are
-  subject to paragraph 5 and Attachment A of that license: you may not use
-  them for the restricted uses it lists, among them breaking the law, harming
-  minors, impersonating others without their consent (for example deepfakes),
-  or disseminating machine-generated content without disclosing that it is
-  machine-generated. Anyone you give them to is bound by the same
-  restrictions, and you must pass them on.
+tiny-voca-js.gguf
+  tiny-voca by n4ze3m, Apache License 2.0: the model (8-bit, as published)
+  and the tables of its phonemizer, dizione.
+  https://huggingface.co/n4ze3m/tiny-voca (revision 1e732622)
+  https://github.com/n4ze3m/tiny-voca
+  The file is unchanged. Its pronunciation dictionary is derived from the
+  CMU Pronouncing Dictionary (LICENSE-cmudict.txt, and in full at the end of
+  this file) and its homograph data is under the Apache License 2.0.
 
 How these were produced: desktop/voice-models/README.md in this repository.
 `;

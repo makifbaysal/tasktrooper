@@ -5,12 +5,9 @@ import { downloadAllWithRetry } from "./download.js";
 import { createEmbeddingsServer, DEFAULT_IDLE_UNLOAD_MS, SPEECH_SAMPLE_RATES, type SpeechEngineInfo } from "./server.js";
 import {
   EMA_FILES,
-  KOKORO_DEFAULT_STYLE,
-  KOKORO_FILES,
-  KOKORO_STYLES,
-  SUPERTONIC_DEFAULT_STYLE,
-  SUPERTONIC_FILES,
-  SUPERTONIC_STYLES,
+  TINYVOCA_DEFAULT_STYLE,
+  TINYVOCA_FILES,
+  TINYVOCA_STYLES,
   VOICE_DIR_NAME,
   type VoiceFile,
 } from "./tts/files.js";
@@ -33,7 +30,7 @@ import { defaultWasmThreads, startWorkerEngine } from "./worker-engine.js";
  * The voices are not downloaded: their files ship in `voice/` beside this
  * bundle (staged by scripts/build-embedder.mjs, hash-checked there), the same
  * relative place in a dev build and a packaged one. Each voice engine (EMA,
- * Kokoro, Supertonic) loads in a worker of its own on its first
+ * tiny-voca) loads in a worker of its own on its first
  * `/v1/audio/speech` for it and idles out like the model does.
  *
  * Spawned as `process.execPath <this file> --cache-dir <userData>` with
@@ -77,7 +74,7 @@ function wasmThreads(raw: string | undefined): number {
 /**
  * A voice's files, when every one is there at its pinned size. The hashes
  * were checked by the build that put them there; a size is the cheap check
- * that catches a truncated copy without reading 240 MB at every launch.
+ * that catches a truncated copy without reading 40 MB at every launch.
  */
 function voiceFilesPresent(dir: string, files: readonly VoiceFile[]): boolean {
   return files.every((file) => {
@@ -108,8 +105,7 @@ function main(): void {
   const speechScript = path.join(__dirname, "tts-worker.cjs");
   const engines: [SpeechEngineId, readonly VoiceFile[], SpeechEngineInfo][] = [
     ["ema", EMA_FILES, { sampleRate: SPEECH_SAMPLE_RATES.ema, styles: [] }],
-    ["kokoro", KOKORO_FILES, { sampleRate: SPEECH_SAMPLE_RATES.kokoro, styles: KOKORO_STYLES, defaultStyle: KOKORO_DEFAULT_STYLE }],
-    ["supertonic", SUPERTONIC_FILES, { sampleRate: SPEECH_SAMPLE_RATES.supertonic, styles: SUPERTONIC_STYLES, defaultStyle: SUPERTONIC_DEFAULT_STYLE }],
+    ["tinyvoca", TINYVOCA_FILES, { sampleRate: SPEECH_SAMPLE_RATES.tinyvoca, styles: TINYVOCA_STYLES, defaultStyle: TINYVOCA_DEFAULT_STYLE }],
   ];
   for (const [engine, files, info] of engines) {
     if (voiceFilesPresent(voiceDir, files)) {

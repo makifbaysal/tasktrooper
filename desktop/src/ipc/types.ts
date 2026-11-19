@@ -796,18 +796,16 @@ export interface RemoteAccessState {
 export type VoiceLanguage = "tr" | "en";
 
 /**
- * The bundled voice engines: EMA Lightning reads Turkish, Kokoro English,
- * Supertonic both.
+ * The bundled voice engines: EMA Lightning reads Turkish, tiny-voca English.
  */
-export const VOICE_ENGINES = ["ema", "kokoro", "supertonic"] as const;
+export const VOICE_ENGINES = ["ema", "tinyvoca"] as const;
 export type VoiceEngine = (typeof VOICE_ENGINES)[number];
 
 export interface VoiceEngineOption {
   engine: VoiceEngine;
   /**
    * Its styles (speakers), its default first; empty for EMA, which has one.
-   * Kokoro's are `af_heart`, `am_michael`, `bf_emma`, … (a/b American or
-   * British, f/m female or male); Supertonic's `F1`…`F5` and `M1`…`M5`.
+   * tiny-voca's are `F2` (female) and `M2` (male).
    */
   styles: string[];
 }
@@ -825,7 +823,7 @@ export interface VoiceCapabilities {
   speak: Record<VoiceLanguage, boolean>;
   /**
    * The bundled engines that read each language, the one a `speak` without
-   * an engine uses first (EMA for Turkish and Kokoro for English, when this
+   * an engine uses first (EMA for Turkish and tiny-voca for English, when this
    * copy has them); empty where there is none.
    */
   speakEngines: Record<VoiceLanguage, VoiceEngineOption[]>;
