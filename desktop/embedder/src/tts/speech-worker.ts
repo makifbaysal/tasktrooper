@@ -15,8 +15,8 @@ import { Worker } from "node:worker_threads";
 /** The languages the bundled voices speak. */
 export type SpeechLanguage = "tr" | "en";
 
-/** Which model a worker holds: EMA Lightning (Turkish), Kokoro (English) or Supertonic (both). */
-export type SpeechEngineId = "ema" | "kokoro" | "supertonic";
+/** Which model a worker holds: EMA Lightning (Turkish) or tiny-voca (English). */
+export type SpeechEngineId = "ema" | "tinyvoca";
 
 export interface SpeechWorkerInit {
   engine: SpeechEngineId;
@@ -40,7 +40,7 @@ export interface SpeechOptions {
   lang: SpeechLanguage;
   speed: number;
   signal: AbortSignal;
-  /** The engine's voice style; EMA has none. */
+  /** The engine's voice; EMA has one, so none is named. */
   style?: string;
 }
 

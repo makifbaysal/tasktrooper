@@ -24,8 +24,8 @@ import {
  * what we hear) and streams PCM here.
  *
  * Speaking is the embedder's `POST /v1/audio/speech`, with engines bundled
- * with the app (EMA Lightning, Turkish, 48 kHz; Kokoro, English, 24 kHz;
- * Supertonic, both, 44.1 kHz; the last two in several styles): raw float32
+ * with the app (EMA Lightning, Turkish, 48 kHz, one voice; tiny-voca,
+ * English, 24 kHz, two voices): raw float32
  * PCM at the rate the embedder announces, passed to the page chunk by chunk
  * as it is made. Which engines this copy has per language, and their styles,
  * come from the embedder's `GET /v1/audio/voices`; a language without one is
@@ -41,9 +41,9 @@ export const MAX_UTTERANCE_MS = 5 * 60_000;
 export const MAX_SPEAK_CHARS = 4000;
 
 /** Each engine's rate, for an error event sent before the embedder named one. */
-const SAMPLE_RATES: Record<VoiceEngine, number> = { ema: 48_000, kokoro: 24_000, supertonic: 44_100 };
+const SAMPLE_RATES: Record<VoiceEngine, number> = { ema: 48_000, tinyvoca: 24_000 };
 /** The engine the embedder picks for a request that names none, when it has it. */
-const DEFAULT_ENGINES: Record<VoiceLanguage, VoiceEngine> = { tr: "ema", en: "kokoro" };
+const DEFAULT_ENGINES: Record<VoiceLanguage, VoiceEngine> = { tr: "ema", en: "tinyvoca" };
 
 /** The voices list is a loopback call to a process this app runs; past this, the voices count as missing. */
 const VOICES_TIMEOUT_MS = 3_000;

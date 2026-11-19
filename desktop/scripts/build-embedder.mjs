@@ -28,7 +28,7 @@ import { pipeline } from "node:stream/promises";
  * `dist/embedder` as a flat directory that does not mirror `node_modules` —
  * proven necessary by the go/no-go prototype's packaged-layout simulation.
  *
- * Last, the voices (EMA, Kokoro and Supertonic): the files pinned in `embedder/src/tts/files.ts`,
+ * Last, the voices (EMA and tiny-voca): the files pinned in `embedder/src/tts/files.ts`,
  * staged into `voice/` beside the bundle, because the app ships them rather
  * than downloading them at run time. They are fetched once into
  * `.cache/voice/` (gitignored) and every copy is SHA-256-checked on every
@@ -80,7 +80,7 @@ await stageVoice();
 process.stdout.write(`build-embedder: wrote ${outdir}\n`);
 
 async function stageVoice() {
-  const { VOICE_DIR_NAME, VOICE_FILES, VOICE_NOTICE, SUPERTONIC_LICENSE } = await loadVoiceFiles();
+  const { VOICE_DIR_NAME, VOICE_FILES, VOICE_NOTICE, VOICE_LICENSES } = await loadVoiceFiles();
   const override = process.env.TASKTROOPER_VOICE_MODELS_DIR;
   const cacheDir = path.join(root, ".cache", "voice");
   const voiceOut = path.join(outdir, VOICE_DIR_NAME);
@@ -97,13 +97,14 @@ async function stageVoice() {
     }
     copyFileSync(src, path.join(voiceOut, file.name));
   }
-  writeFileSync(path.join(voiceOut, "NOTICE.txt"), voiceNotice(VOICE_NOTICE, readFileSync(path.join(voiceOut, SUPERTONIC_LICENSE), "utf8")));
+  const licenses = VOICE_LICENSES.map((name) => [name, readFileSync(path.join(voiceOut, name), "utf8")]);
+  writeFileSync(path.join(voiceOut, "NOTICE.txt"), voiceNotice(VOICE_NOTICE, licenses));
   process.stdout.write(`build-embedder: staged ${VOICE_FILES.length} voice files${override ? ` from ${override}` : ""}\n`);
 }
 
-/** The same bytes as the release's own NOTICE.txt: the attribution, then the OpenRAIL-M text in full. */
-function voiceNotice(notice, license) {
-  return `${notice}\n\n==== LICENSE-supertonic.txt ====\n\n${license}`;
+/** The attribution, then each license text in full. */
+function voiceNotice(notice, licenses) {
+  return [notice, ...licenses.map(([name, text]) => `==== ${name} ====\n\n${text}`)].join("\n\n");
 }
 
 /**

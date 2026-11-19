@@ -17,7 +17,8 @@ import reactHooks from "eslint-plugin-react-hooks";
  * it.
  */
 export default tseslint.config(
-  { ignores: ["dist/**", "release/**", "bin/**", "node_modules/**", "ui/**"] },
+  // Upstream tiny-voca scripts, copied unchanged (see its README.md).
+  { ignores: ["dist/**", "release/**", "bin/**", "node_modules/**", "ui/**", "embedder/src/tts/tinyvoca/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

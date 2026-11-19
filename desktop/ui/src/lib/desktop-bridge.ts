@@ -740,8 +740,8 @@ export interface DesktopToolchainHost {
 
 export type DesktopVoiceLanguage = "tr" | "en";
 
-/** EMA Lightning reads Turkish, Kokoro English, Supertonic both. */
-export type DesktopVoiceEngine = "ema" | "kokoro" | "supertonic";
+/** EMA Lightning reads Turkish, tiny-voca English. */
+export type DesktopVoiceEngine = "ema" | "tinyvoca";
 
 export interface DesktopVoiceEngineOption {
   engine: DesktopVoiceEngine;

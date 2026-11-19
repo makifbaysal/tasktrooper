@@ -22,28 +22,20 @@ const SPEEDS = [0.75, 1, 1.25, 1.5];
 const LANGUAGES: DesktopVoiceLanguage[] = ["tr", "en"];
 const ENGINE_NAMES: Record<DesktopVoiceEngine, string> = {
   ema: "EMA Lightning",
-  kokoro: "Kokoro",
-  supertonic: "Supertonic 3",
+  tinyvoca: "tiny-voca",
 };
 
 type T = ReturnType<typeof useI18n>["t"];
 
-function styleLabel(t: T, engine: DesktopVoiceEngine, style: string): string {
-  const supertonic = /^([FM])(\d+)$/.exec(style);
-  if (engine === "supertonic" && supertonic) {
-    return t(supertonic[1] === "F" ? "settings.voice.female" : "settings.voice.male", { n: supertonic[2] });
-  }
-  // Kokoro ids: accent (a = American, b = British), gender (f/m), name.
-  const kokoro = /^([ab])([fm])_(\w+)$/.exec(style);
-  if (engine === "kokoro" && kokoro) {
-    return t("settings.voice.kokoroStyle", {
-      name: kokoro[3].charAt(0).toUpperCase() + kokoro[3].slice(1),
-      accent: t(kokoro[1] === "a" ? "settings.voice.us" : "settings.voice.gb"),
-      gender: t(kokoro[2] === "f" ? "settings.voice.woman" : "settings.voice.man"),
-    });
-  }
-  return style;
+function voiceLabel(t: T, choice: DesktopVoiceChoice): string {
+  const engine = choice.engine ? (ENGINE_NAMES[choice.engine] ?? choice.engine) : "";
+  if (!choice.style) return engine;
+  const gender = /^([FM])\d*$/.exec(choice.style);
+  const name = gender ? t(gender[1] === "F" ? "settings.voice.female" : "settings.voice.male") : choice.style;
+  return `${engine} — ${name}`;
 }
+
+const voiceKey = (choice: DesktopVoiceChoice) => `${choice.engine ?? ""}:${choice.style ?? ""}`;
 
 /** Settings → Voice: talking to agents. Absent where the shell has no voice bridge. */
 export function VoiceCard() {
@@ -52,6 +44,7 @@ export function VoiceCard() {
   const [caps, setCaps] = useState<DesktopVoiceCapabilities | null>(null);
   const [prefs, setPrefs] = useState<VoicePrefs>(readVoicePrefs);
   const [playing, setPlaying] = useState<DesktopVoiceLanguage | null>(null);
+  const [shown, setShown] = useState<DesktopVoiceLanguage>(() => voiceLanguageFor(lang) ?? "tr");
   const stopPreview = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -126,53 +119,91 @@ export function VoiceCard() {
           </div>
         </>
       )}
-      {LANGUAGES.map((l) => {
-        const options = caps?.speakEngines?.[l] ?? [];
-        if (options.length === 0) return null;
-        const { option, choice } = effectiveVoice(caps, l, prefs.voices[l]);
-        if (!option || !choice?.engine) return null;
-        const engine = choice.engine;
-        return (
-          <div key={l} className="space-y-2 border-t border-border pt-4">
-            <Label>{t(l === "tr" ? "settings.voice.languageTr" : "settings.voice.languageEn")}</Label>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={engine}
-                onValueChange={(v) => pick(l, { engine: v as DesktopVoiceEngine })}
-              >
-                <SelectTrigger className="w-44" aria-label={t("settings.voice.model")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.map((o) => (
-                    <SelectItem key={o.engine} value={o.engine}>
-                      {ENGINE_NAMES[o.engine] ?? o.engine}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {option.styles.length > 0 && (
-                <Select value={choice.style} onValueChange={(v) => pick(l, { engine, style: v })}>
-                  <SelectTrigger className="w-56" aria-label={t("settings.voice.style")}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {option.styles.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {styleLabel(t, engine, s)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <Button type="button" variant="outline" size="sm" onClick={() => listen(l, choice)}>
-                {playing === l ? <Square className="mr-1.5 h-4 w-4" /> : <Play className="mr-1.5 h-4 w-4" />}
-                {t(playing === l ? "settings.voice.previewStop" : "settings.voice.preview")}
-              </Button>
-            </div>
-          </div>
-        );
-      })}
+      {caps && (
+        <VoicePicker
+          caps={caps}
+          prefs={prefs}
+          shown={shown}
+          playing={playing}
+          onShow={setShown}
+          onPick={pick}
+          onListen={listen}
+        />
+      )}
     </Card>
+  );
+}
+
+function VoicePicker({
+  caps,
+  prefs,
+  shown,
+  playing,
+  onShow,
+  onPick,
+  onListen,
+}: {
+  caps: DesktopVoiceCapabilities;
+  prefs: VoicePrefs;
+  shown: DesktopVoiceLanguage;
+  playing: DesktopVoiceLanguage | null;
+  onShow: (l: DesktopVoiceLanguage) => void;
+  onPick: (l: DesktopVoiceLanguage, choice: DesktopVoiceChoice) => void;
+  onListen: (l: DesktopVoiceLanguage, choice: DesktopVoiceChoice) => void;
+}) {
+  const { t } = useI18n();
+  const languages = LANGUAGES.filter((l) => (caps.speakEngines?.[l] ?? []).length > 0);
+  if (languages.length === 0) return null;
+  const l = languages.includes(shown) ? shown : languages[0];
+  const { choice } = effectiveVoice(caps, l, prefs.voices[l]);
+  if (!choice?.engine) return null;
+  const voices: DesktopVoiceChoice[] = (caps.speakEngines?.[l] ?? []).flatMap((o) =>
+    o.styles.length > 0 ? o.styles.map((style) => ({ engine: o.engine, style })) : [{ engine: o.engine }],
+  );
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-4">
+        <Label htmlFor="voice-language">{t("settings.voice.language")}</Label>
+        <Select value={l} onValueChange={(v) => onShow(v as DesktopVoiceLanguage)}>
+          <SelectTrigger id="voice-language" className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {languages.map((x) => (
+              <SelectItem key={x} value={x}>
+                {t(x === "tr" ? "settings.voice.languageTr" : "settings.voice.languageEn")}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center justify-between gap-4">
+        <Label htmlFor="voice-style">{t("settings.voice.style")}</Label>
+        <div className="flex items-center gap-2">
+          <Select
+            value={voiceKey(choice)}
+            onValueChange={(v) => {
+              const picked = voices.find((x) => voiceKey(x) === v);
+              if (picked) onPick(l, picked);
+            }}
+          >
+            <SelectTrigger id="voice-style" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {voices.map((x) => (
+                <SelectItem key={voiceKey(x)} value={voiceKey(x)}>
+                  {voiceLabel(t, x)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="button" variant="outline" size="sm" onClick={() => onListen(l, choice)}>
+            {playing === l ? <Square className="mr-1.5 h-4 w-4" /> : <Play className="mr-1.5 h-4 w-4" />}
+            {t(playing === l ? "settings.voice.previewStop" : "settings.voice.preview")}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

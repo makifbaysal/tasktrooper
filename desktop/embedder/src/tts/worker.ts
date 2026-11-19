@@ -1,8 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { loadVoice } from "./ema.js";
-import { loadKokoro } from "./kokoro.js";
 import type { SpeechLanguage, SpeechWorkerInit, SpeechWorkerReply, SpeechWorkerRequest } from "./speech-worker.js";
-import { loadSupertonic } from "./supertonic.js";
+import { loadTinyVoca } from "./tinyvoca.js";
 
 /**
  * The worker side of `speech-worker.ts`: load the engine it was started for, then stream speech
@@ -14,8 +13,7 @@ const port = parentPort;
 
 const init = workerData as SpeechWorkerInit;
 const options = { numThreads: init.numThreads };
-const loaders = { ema: loadVoice, kokoro: loadKokoro, supertonic: loadSupertonic };
-const ready = loaders[init.engine](init.voiceDir, init.wasmDir, options);
+const ready = init.engine === "ema" ? loadVoice(init.voiceDir, init.wasmDir, options) : loadTinyVoca(init.voiceDir);
 const running = new Map<number, AbortController>();
 
 ready.then(

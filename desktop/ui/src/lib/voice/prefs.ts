@@ -1,6 +1,6 @@
 import type { DesktopVoiceChoice, DesktopVoiceEngine, DesktopVoiceLanguage } from "@/lib/desktop-bridge";
 
-const ENGINES: readonly DesktopVoiceEngine[] = ["ema", "kokoro", "supertonic"];
+const ENGINES: readonly DesktopVoiceEngine[] = ["ema", "tinyvoca"];
 
 /** Per-computer voice preferences; a convenience, so an unreadable store just means the defaults. */
 export interface VoicePrefs {

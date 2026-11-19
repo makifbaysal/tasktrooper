@@ -51,15 +51,11 @@ function setup(overrides: Partial<VoiceDeps> = {}) {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-const SUPERTONIC = { id: "supertonic", sample_rate: 44_100, styles: ["F1", "M2", "F2"], default_style: "M2" };
+const TINYVOCA = { id: "tinyvoca", sample_rate: 24_000, styles: ["M2", "F2"], default_style: "F2" };
 const VOICES = {
   voices: [
-    { id: "tr", default_engine: "ema", engines: [{ id: "ema", sample_rate: 48_000, styles: [] }, SUPERTONIC] },
-    {
-      id: "en",
-      default_engine: "kokoro",
-      engines: [{ id: "kokoro", sample_rate: 24_000, styles: ["af_bella", "af_heart", "bm_george"], default_style: "af_heart" }, SUPERTONIC],
-    },
+    { id: "tr", default_engine: "ema", engines: [{ id: "ema", sample_rate: 48_000, styles: [] }] },
+    { id: "en", default_engine: "tinyvoca", engines: [TINYVOCA] },
   ],
 };
 
@@ -71,13 +67,12 @@ describe("VoiceService.capabilities", () => {
   it("listens on macOS with the helper and speaks with the engines the embedder lists, default engine and style first", async () => {
     const fetchMock = voicesFetch(VOICES);
     const { service } = setup({ fetch: fetchMock as unknown as typeof fetch });
-    const supertonic = { engine: "supertonic", styles: ["M2", "F1", "F2"] };
     await expect(service.capabilities()).resolves.toEqual({
       listen: { tr: true, en: true },
       speak: { tr: true, en: true },
       speakEngines: {
-        tr: [{ engine: "ema", styles: [] }, supertonic],
-        en: [{ engine: "kokoro", styles: ["af_heart", "af_bella", "bm_george"] }, supertonic],
+        tr: [{ engine: "ema", styles: [] }],
+        en: [{ engine: "tinyvoca", styles: ["F2", "M2"] }],
       },
     });
     expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe("http://127.0.0.1:5555/v1/audio/voices");
@@ -93,12 +88,12 @@ describe("VoiceService.capabilities", () => {
 
   it("puts the listed default engine first and drops engines it does not know", async () => {
     const listing = {
-      voices: [{ id: "en", default_engine: "supertonic", engines: [{ id: "piper", styles: ["x"] }, { id: "kokoro", styles: ["af_heart"] }, SUPERTONIC, "junk"] }],
+      voices: [{ id: "en", default_engine: "tinyvoca", engines: [{ id: "kokoro", styles: ["F2"] }, { id: "ema", styles: [] }, TINYVOCA, "junk"] }],
     };
     const { service } = setup({ fetch: voicesFetch(listing) as unknown as typeof fetch });
     expect((await service.capabilities()).speakEngines.en).toEqual([
-      { engine: "supertonic", styles: ["M2", "F1", "F2"] },
-      { engine: "kokoro", styles: ["af_heart"] },
+      { engine: "tinyvoca", styles: ["F2", "M2"] },
+      { engine: "ema", styles: [] },
     ]);
   });
 
@@ -211,24 +206,24 @@ describe("VoiceService speaking", () => {
   it("asks for English with the style, and forwards the 24 kHz rate the embedder announces", async () => {
     const fetchMock = vi.fn(async () => new Response(new Uint8Array([0, 0, 128, 63]), { status: 200, headers: { "X-Sample-Rate": "24000" } }));
     const { service, events } = setup({ fetch: fetchMock as unknown as typeof fetch });
-    await service.speak("en", "Hello.", 1.25, { style: "bm_george" });
+    await service.speak("en", "Hello.", 1.25, { style: "M2" });
     await vi.waitFor(() => expect(events.some((e) => (e.payload as { done?: boolean }).done)).toBe(true));
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toEqual({ input: "Hello.", voice: "en", speed: 1.25, style: "bm_george" });
+    expect(JSON.parse(init.body as string)).toEqual({ input: "Hello.", voice: "en", speed: 1.25, style: "M2" });
     expect(events.map((e) => (e.payload as { sampleRate: number }).sampleRate)).toEqual([24_000, 24_000]);
   });
 
   it("names the engine and style only when picked, for either language", async () => {
     const fetchMock = vi.fn(async () => new Response(new Uint8Array(0), { status: 200 }));
     const { service, events } = setup({ fetch: fetchMock as unknown as typeof fetch });
-    await service.speak("tr", "Merhaba.", 1, { engine: "supertonic", style: "F1" });
-    await service.speak("en", "Hello.", 1, { engine: "supertonic" });
+    await service.speak("tr", "Merhaba.", 1, { engine: "ema" });
+    await service.speak("en", "Hello.", 1, { engine: "tinyvoca", style: "M2" });
     await service.speak("en", "Hello.", 1);
     await vi.waitFor(() => expect(events.filter((e) => (e.payload as { done?: boolean }).done)).toHaveLength(3));
     const bodies = fetchMock.mock.calls.map((c) => JSON.parse((c as unknown as [string, RequestInit])[1].body as string) as Record<string, unknown>);
     expect(bodies).toEqual([
-      { input: "Merhaba.", voice: "tr", speed: 1, engine: "supertonic", style: "F1" },
-      { input: "Hello.", voice: "en", speed: 1, engine: "supertonic" },
+      { input: "Merhaba.", voice: "tr", speed: 1, engine: "ema" },
+      { input: "Hello.", voice: "en", speed: 1, engine: "tinyvoca", style: "M2" },
       { input: "Hello.", voice: "en", speed: 1 },
     ]);
   });
@@ -236,9 +231,9 @@ describe("VoiceService speaking", () => {
   it("ends a refused request with an error at the named engine's rate", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 400 }));
     const { service, events } = setup({ fetch: fetchMock as unknown as typeof fetch, log: () => {} });
-    await service.speak("tr", "Merhaba.", 1, { engine: "supertonic", style: "nope" });
+    await service.speak("en", "Hello.", 1, { engine: "tinyvoca", style: "nope" });
     await vi.waitFor(() => expect(events).toHaveLength(1));
-    expect(events[0].payload).toMatchObject({ sampleRate: 44_100, done: true, error: expect.any(String) });
+    expect(events[0].payload).toMatchObject({ sampleRate: 24_000, done: true, error: expect.any(String) });
   });
 
   it("refuses to speak while the embedder is not running", async () => {
