@@ -20,9 +20,8 @@ import (
 )
 
 // testSink is where every record this binary logs ends up. The package logger
-// is a global and the goroutines writing through it — yamux's, now, among this
-// program's own — can outlive the test that started them, so the logger is
-// installed exactly once and only its DESTINATION moves afterwards (see
+// is a global and the goroutines writing through it can outlive the test that
+// started them, so the logger is installed exactly once and only its DESTINATION moves afterwards (see
 // captureLogs). Reassigning log.Logger per test would be a data race against
 // whichever of those goroutines is mid-line.
 var testSink = &switchableWriter{to: io.Discard}
@@ -47,13 +46,11 @@ func (w *switchableWriter) redirect(to io.Writer) {
 // testStderr collects everything this process writes through os.Stderr, which
 // should be nothing at all: the supervisor reads this program's stdout as
 // records, and raw text on stderr is a line it can only pass through unparsed
-// — which is what yamux's default logger produced on every clean quit before
-// yamuxLogger existed.
+// — which is what yamux's default logger once produced on every clean quit.
 //
-// The swap happens once, here, and never again: os.Stderr is a global that
-// yamux.DefaultConfig reads every time a session starts, so moving it while
-// one is live is a race in the harness rather than a finding about the
-// program. Note this redirects the os.Stderr *variable* — a runtime panic
+// The swap happens once, here, and never again: os.Stderr is a global, so moving it
+// while something writes through it is a race in the harness rather than a
+// finding about the program. Note this redirects the os.Stderr *variable* — a runtime panic
 // still goes straight to fd 2, so a crash is not swallowed.
 var testStderr = &syncBuffer{}
 
@@ -92,15 +89,14 @@ func TestToTunnelURL(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{"https", "https://tasktrooper.ai", "wss://tasktrooper.ai/internal/runner/tunnel", false},
-		{"http", "http://localhost:8081", "ws://localhost:8081/internal/runner/tunnel", false},
-		{"https with existing path", "https://tasktrooper.ai/some/path", "wss://tasktrooper.ai/internal/runner/tunnel", false},
-		{"https with query", "https://tasktrooper.ai?foo=bar", "wss://tasktrooper.ai/internal/runner/tunnel", false},
-		{"path, query and fragment together", "https://tasktrooper.ai/v1/x?token=leak#frag", "wss://tasktrooper.ai/internal/runner/tunnel", false},
-		{"fragment only", "https://tasktrooper.ai#frag", "wss://tasktrooper.ai/internal/runner/tunnel", false},
-		{"port survives", "http://127.0.0.1:8081", "ws://127.0.0.1:8081/internal/runner/tunnel", false},
-		{"already ws", "ws://tasktrooper.ai", "ws://tasktrooper.ai/internal/runner/tunnel", false},
-		{"already wss", "wss://tasktrooper.ai", "wss://tasktrooper.ai/internal/runner/tunnel", false},
+		{"https", "https://tasktrooper.ai", "https://tasktrooper.ai/internal/runner/", false},
+		{"http", "http://localhost:8081", "http://localhost:8081/internal/runner/", false},
+		{"https with existing path", "https://tasktrooper.ai/some/path", "https://tasktrooper.ai/internal/runner/", false},
+		{"https with query", "https://tasktrooper.ai?foo=bar", "https://tasktrooper.ai/internal/runner/", false},
+		{"path, query and fragment together", "https://tasktrooper.ai/v1/x?token=leak#frag", "https://tasktrooper.ai/internal/runner/", false},
+		{"fragment only", "https://tasktrooper.ai#frag", "https://tasktrooper.ai/internal/runner/", false},
+		{"port survives", "http://127.0.0.1:8081", "http://127.0.0.1:8081/internal/runner/", false},
+		{"websocket schemes are gone", "wss://tasktrooper.ai", "", true},
 		{"unsupported scheme", "ftp://tasktrooper.ai", "", true},
 		{"no host", "https://", "", true},
 		{"not a url", "://not a url", "", true},
@@ -113,18 +109,18 @@ func TestToTunnelURL(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := toTunnelURL(tc.in)
+			got, err := toRunnerURL(tc.in)
 			if tc.wantErr {
 				if err == nil {
-					t.Fatalf("toTunnelURL(%q) = %q, want error", tc.in, got)
+					t.Fatalf("toRunnerURL(%q) = %q, want error", tc.in, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("toTunnelURL(%q) unexpected error: %v", tc.in, err)
+				t.Fatalf("toRunnerURL(%q) unexpected error: %v", tc.in, err)
 			}
 			if got != tc.want {
-				t.Fatalf("toTunnelURL(%q) = %q, want %q", tc.in, got, tc.want)
+				t.Fatalf("toRunnerURL(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -190,8 +186,8 @@ func TestLoadConfigFromStdin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if cfg.tunnelURL != "wss://tasktrooper.ai/internal/runner/tunnel" {
-		t.Fatalf("tunnelURL = %q", cfg.tunnelURL)
+	if cfg.runnerURL != "https://tasktrooper.ai/internal/runner/" {
+		t.Fatalf("runnerURL = %q", cfg.runnerURL)
 	}
 	if cfg.runnerToken != "tok-123" {
 		t.Fatalf("runnerToken = %q", cfg.runnerToken)
@@ -533,7 +529,7 @@ func TestLoggerNeverLogsToken(t *testing.T) {
 	}
 	// The lines connectAndServe emits around a session, reproduced here
 	// because the real ones need a live control plane.
-	logger.Debug().Str("url", cfg.tunnelURL).Msg("dialing control plane")
+	logger.Debug().Str("url", cfg.runnerURL).Msg("saying hello to the control plane")
 	logger.Info().Msg("tunnel attached")
 	logger.Info().Int("streams", 3).Msg("tunnel detached")
 
@@ -565,136 +561,6 @@ func TestLogOutputIsJSON(t *testing.T) {
 	}
 	if _, ok := got["time"]; !ok {
 		t.Fatal("log line has no time field")
-	}
-}
-
-// yamux has opinions about a connection going away that this program does not
-// share, and it states them as errors. Which of them is really an error
-// depends on whether this process is the one that pulled the connection out
-// from under it.
-func TestYamuxRecordLevels(t *testing.T) {
-	// The exact line the mux writes when the websocket is closed under it,
-	// which is what a clean quit looks like from inside yamux.
-	const readHeader = "[ERR] yamux: Failed to read header: failed to get reader: context canceled"
-	// And one that means the tunnel is dying for a reason worth reading.
-	const keepalive = "[ERR] yamux: keepalive failed: i/o timeout"
-	const backlog = "[WARN] yamux: backlog exceeded, forcing connection reset"
-
-	cases := []struct {
-		name         string
-		line         string
-		shuttingDown bool
-		wantLevel    zerolog.Level
-		wantMsg      string
-		wantLogged   bool
-	}{
-		{"read failure while shutting down", readHeader, true, zerolog.DebugLevel,
-			"yamux: Failed to read header: failed to get reader: context canceled", true},
-		{"read failure during a live session", readHeader, false, zerolog.ErrorLevel,
-			"yamux: Failed to read header: failed to get reader: context canceled", true},
-		{"keepalive failure is a real error", keepalive, false, zerolog.ErrorLevel,
-			"yamux: keepalive failed: i/o timeout", true},
-		{"keepalive failure while shutting down", keepalive, true, zerolog.DebugLevel,
-			"yamux: keepalive failed: i/o timeout", true},
-		{"warning during a live session", backlog, false, zerolog.WarnLevel,
-			"yamux: backlog exceeded, forcing connection reset", true},
-		{"warning while shutting down", backlog, true, zerolog.DebugLevel,
-			"yamux: backlog exceeded, forcing connection reset", true},
-		{"untagged", "yamux: something it narrates", false, zerolog.DebugLevel,
-			"yamux: something it narrates", true},
-		{"trailing newline is trimmed", keepalive + "\n", false, zerolog.ErrorLevel,
-			"yamux: keepalive failed: i/o timeout", true},
-		{"blank line", "\n", false, zerolog.NoLevel, "", false},
-		{"empty write", "", false, zerolog.NoLevel, "", false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			level, msg, logged := yamuxRecord(tc.line, tc.shuttingDown)
-			if logged != tc.wantLogged {
-				t.Fatalf("yamuxRecord(%q, %v) logged = %v, want %v", tc.line, tc.shuttingDown, logged, tc.wantLogged)
-			}
-			if !logged {
-				return
-			}
-			if level != tc.wantLevel {
-				t.Fatalf("yamuxRecord(%q, %v) level = %s, want %s", tc.line, tc.shuttingDown, level, tc.wantLevel)
-			}
-			if msg != tc.wantMsg {
-				t.Fatalf("yamuxRecord(%q, %v) message = %q, want %q", tc.line, tc.shuttingDown, msg, tc.wantMsg)
-			}
-		})
-	}
-}
-
-// What yamux writes must come out as records, not as the raw text the
-// supervisor would have to pass through unparsed into the log the user reads.
-func TestYamuxLoggerEmitsStructuredRecords(t *testing.T) {
-	logs := captureLogs(t)
-
-	live, cancelLive := context.WithCancel(context.Background())
-	defer cancelLive()
-	shuttingDown, cancelShuttingDown := context.WithCancel(context.Background())
-	cancelShuttingDown()
-
-	yamuxLogger(shuttingDown).Printf("[ERR] yamux: Failed to read header: failed to get reader: context canceled")
-	yamuxLogger(live).Printf("[ERR] yamux: keepalive failed: i/o timeout")
-
-	// logRecords fails on any line that is not JSON, which is the assertion:
-	// nothing raw got through.
-	records := logRecords(t, logs.String())
-	if len(records) != 2 {
-		t.Fatalf("got %d records, want 2:\n%s", len(records), logs.String())
-	}
-	if records[0]["level"] != "debug" {
-		t.Fatalf("the mux noticing the connection this process just closed logged at %v, want debug", records[0]["level"])
-	}
-	if records[1]["level"] != "error" {
-		t.Fatalf("a keepalive failure on a live session logged at %v, want error", records[1]["level"])
-	}
-	for _, rec := range records {
-		msg, _ := rec["message"].(string)
-		if !strings.HasPrefix(msg, "yamux: ") {
-			t.Fatalf("message = %q, want yamux's own prefix kept so the record needs no field to say where it came from", msg)
-		}
-		if strings.Contains(msg, "[ERR]") {
-			t.Fatalf("message = %q still carries yamux's level tag; the level is a field now", msg)
-		}
-		if _, ok := rec["time"]; !ok {
-			t.Fatalf("record %v has no time field", rec)
-		}
-	}
-}
-
-// yamux writes from its read, write and keepalive goroutines at once. The
-// writer must lose nothing and must not tear records into each other; run this
-// under -race for the other half of the claim.
-func TestYamuxLoggerIsSafeForConcurrentUse(t *testing.T) {
-	logs := captureLogs(t)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	logger := yamuxLogger(ctx)
-
-	const writers = 32
-	var wg sync.WaitGroup
-	wg.Add(writers)
-	for i := 0; i < writers; i++ {
-		go func() {
-			defer wg.Done()
-			logger.Printf("[WARN] yamux: backlog exceeded, forcing connection reset")
-		}()
-	}
-	wg.Wait()
-
-	records := logRecords(t, logs.String())
-	if len(records) != writers {
-		t.Fatalf("%d concurrent writes produced %d records, want %d", writers, len(records), writers)
-	}
-	for _, rec := range records {
-		if rec["level"] != "warn" || rec["message"] != "yamux: backlog exceeded, forcing connection reset" {
-			t.Fatalf("record came out garbled: %v", rec)
-		}
 	}
 }
 

@@ -214,6 +214,11 @@ export const CLOUD_CHANNELS = {
   runnerUnpair: "cloud:runner:unpair",
   runnerPairingInfo: "cloud:runner:pairing-info",
   runnerRestart: "cloud:runner:restart",
+  /**
+   * Account mode only: the account's page saw the cloud's signal that calls
+   * wait for this computer, so the runner collects them now. Carries nothing.
+   */
+  runnerWake: "cloud:runner:wake",
 
   settingsGet: "cloud:settings:get",
   settingsSetPreferences: "cloud:settings:set-preferences",

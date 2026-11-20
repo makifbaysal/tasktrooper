@@ -25,9 +25,10 @@ backend is `../../server`, supervised by `../src/main/supervisor/`.
   file or a log line, and are scrubbed out of everything forwarded back. So are
   the env and header values of the member's own MCP servers (`mcp_servers`).
 
-A single-binary daemon. It dials out to the control plane over WebSocket,
-holds that connection open as a reverse tunnel, and serves HTTP over the yamux
-streams the control plane opens on it. The cloud coordinates; this computer
+A single-binary daemon. It collects calls from the control plane's mailbox
+for this computer over plain HTTPS (`mailbox.go`) and answers each with its own
+HTTP handler; nothing is held open between calls, so the cloud can scale to
+zero while this computer sits idle. "The tunnel" below means that mailbox. The cloud coordinates; this computer
 executes: Claude Code / OpenCode / Cursor sessions, checkouts, the local
 executor (an agent run with the member's own keys), the devices attached to
 this machine, and what this machine can do.
@@ -47,7 +48,9 @@ published or run on its own.
 ## Layout
 
 ```
-main.go          config, the control channel, logging, the tunnel and its reconnect loop
+main.go          config, the control channel, logging, the reconnect loop
+mailbox.go       the mailbox: hello, claim, and each call served into a
+                 writer that posts its head, body chunks and end
 policy.go        the rules a paired service may change: OpenCode's refused
                  providers, the environment-credential scrubbing
 executor.go      the local executor: start, readiness, restart with backoff,
@@ -111,8 +114,8 @@ main_test.go     config, the control channel, logging, backoff arithmetic, and
                  that every key the supervisor sends is a field this binary
                  declares (read out of ../src/main/runner/env.ts)
 tunnel_test.go   the session and the reconnect loop, driven against an
-                 in-process control plane (real HTTP, real WebSocket, real
-                 yamux client — the transport is never mocked)
+                 in-process mailbox (real HTTP, the control plane's call
+                 lifecycle — the transport is never mocked)
 session_test.go  streaming, POST /cancel, and a closed stream that leaves the
                  run going until shutdown, against real processes that ignore
                  SIGTERM
@@ -175,14 +178,27 @@ runner_policy_test.go  the policy: strict when absent, replaceable, refused when
 
 ## The wire format
 
-**HTTP/1.1 over the tunnel.** The control plane is the yamux CLIENT — it opens
-the streams — and it reaches this Mac with `httputil.ReverseProxy` over an
-`http.Transport`, so what lands on a stream is genuine HTTP framing. This
-program is therefore an `http.Server` whose listener is the yamux session.
+**HTTP, carried by a mailbox.** The control plane parks each call for this
+computer (method, path, query, headers, body) and signals the computer; the
+desktop app passes the signal on as a `wake` control line. The runner then:
 
-That is what the tunnel was built for: it carried HTTP to agent-server before
-this rework, and keeping HTTP keeps status codes, headers and incremental
-streaming — all three of which the callers need.
+1. `POST <runner_url>hello` — at start, after every reconnect and at the
+   interval the answer names (`hello_interval_seconds`); it is what keeps this
+   computer counted as attached.
+2. `POST <runner_url>calls/claim` — at start, on every `wake` and every hello.
+   There is no poll: an idle computer costs the cloud nothing.
+3. Each claimed call is served by this program's own `http.Handler`, into a
+   writer that posts `calls/{id}/head` (`{status, header}`) once the handler
+   commits, then `calls/{id}/body?seq=n` chunks (on Flush, or every 250 ms; an
+   empty one after a quiet minute), then `calls/{id}/end` (`{error?}`). A
+   chunk is retried; the control plane drops a `seq` it already has.
+4. A `410` on any of them is the control plane giving up on that call: the
+   request's context is cancelled, exactly as a closed connection used to.
+
+Every post carries `Authorization: Bearer <runner_token>` and
+`X-Runner-Tenant`; the token names the member. A 401/403 is fatal, as a
+rejected dial was. Status codes, headers and incremental streaming all
+survive, which is what the callers need.
 
 ```
 POST /claude.run          → 200 application/x-ndjson, streamed
@@ -306,7 +322,7 @@ end. One JSON object per line, **flushed as each is written**:
 
 `claude.run`, `opencode.run`, `cursor.run`, `agent.run`, `verify` and `scan`
 **outlive the stream that started them and the tunnel session that carried
-it.** The cloud's load balancer cuts a WebSocket at an hour and tasks run
+it.** A forward on a Cloud Run request is cut at an hour and tasks run
 longer than that; a reconnect used to kill every run in flight. A new long
 method joins by going through `queueDurable`/`serveDurable`.
 
@@ -1182,9 +1198,8 @@ configured — an ordinary case, not a misconfiguration.
   to exist — the database listener, which replaced Google's cloud-sql-proxy —
   went with the database.
 
-  It **does** run an `http.Server`, and that is not a hole: its listener is the
-  yamux session, which yields streams the control plane opened on a connection
-  this process dialled outward. What would be a hole is `net.Listen`, and that
+  It serves HTTP without a server: every call is one it collected by posting
+  outward, handed to its handler in memory. What would be a hole is `net.Listen`, and that
   is what `rules_test.go` forbids — the server type is fine, binding is not.
 - **No port for anything else.** Not for health checks, not for metrics, not
   for debugging. The supervisor learns this program's state from its log lines,
@@ -1481,7 +1496,11 @@ runner's whole life and ends it first in `stop()`.
 
 ```json
 {"type":"preflight","report":{ … }}
+{"type":"wake"}
 ```
+
+`wake` is the cloud's signal that calls are waiting: the runner claims at
+once.
 
 A control line this build does not understand is logged and skipped. The tunnel
 is the valuable thing this process holds; tearing it down over an unknown
@@ -1496,17 +1515,6 @@ a contract with `../src/main/runner/runner-log.ts`; changing one is a
 two-file change.
 
 The runner token must never appear in a log line. There is a test for it.
-
-**yamux logs through the same logger**, not to stderr where it defaults
-(`yamuxLogger` and `yamuxRecord` in `main.go`). Its lines arrive as ordinary
-records — `level`, `message`, `time`, no new field names, the `yamux: ` prefix
-kept in the message — so the supervisor needs no case for them. Its `[ERR]` and
-`[WARN]` tags become the record's level while a session is live, because a
-keepalive that failed is the reason the tunnel is about to drop and is worth
-seeing. Once shutdown has started they are debug: tearing the session down is
-how this program quits, the mux then calling the closed connection an error is
-not a fault, and an `ERR` in the log tail on every clean quit teaches people to
-ignore the log they will need when something is genuinely wrong.
 
 ## Development
 

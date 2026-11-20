@@ -326,6 +326,8 @@ export interface DesktopRunnerHost {
   pairing(): Promise<RunnerPairingSummary | null>;
   /** Restart the runner — account mode's `restartChild`, one child, no id. */
   restart(): Promise<DesktopRunnerSnapshot>;
+  /** Bridge 10: the cloud signalled that calls wait; the runner claims them now. */
+  wake?(): Promise<void>;
 
   logs(req?: { child?: DesktopChildId | "supervisor"; afterSeq?: number; limit?: number }): Promise<DesktopLogLine[]>;
   subscribeLogs(cb: (lines: DesktopLogLine[]) => void): () => void;
@@ -853,6 +855,7 @@ export interface TaskTrooperDesktopHost {
    * 7: `analytics.track(event)` / `analytics.identify(userId)`.
    * 8: `remoteAccess` — the tunnel for the phone app (local mode only).
    * 9: `voice` — talking to an agent: speech to text and text to speech.
+   * 10: `runner.wake()` — the page relays the cloud's wake signal.
    */
   bridgeVersion?: number;
   /**

@@ -7,8 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,18 +19,14 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/coder/websocket"
-	"github.com/hashicorp/yamux"
 )
 
-// The tunnel is this program's whole job, and the way it fails is quiet: a
-// session ends, the reconnect loop stalls or backs off forever, and the Mac
-// stops running its member's tasks without anything looking broken. So the tests
-// in this file drive the real reconnect loop against a real HTTP server, a
-// real WebSocket upgrade and a real yamux client. Nothing here is mocked,
-// because every failure worth catching lives in the interaction between those
-// three and a mocked transport would prove none of it.
+// The mailbox is this program's whole job, and the way it fails is quiet: the
+// computer stops collecting calls, the reconnect loop stalls or backs off
+// forever, and the member's tasks stop running without anything looking
+// broken. So the tests in this file drive the real loop against a real HTTP
+// server that keeps calls the way the control plane does: parked until the
+// runner claims them, answered by head, body chunks and end.
 
 const testToken = "test-runner-token-must-never-be-logged"
 
@@ -38,8 +34,7 @@ const testToken = "test-runner-token-must-never-be-logged"
 // an in-process control plane
 // ---------------------------------------------------------------------------
 
-// dialAttempt records one arrival at the gateway's tunnel endpoint, whether or
-// not it was allowed to upgrade.
+// dialAttempt records one hello, whether or not it was accepted.
 type dialAttempt struct {
 	at     time.Time
 	path   string
@@ -47,41 +42,201 @@ type dialAttempt struct {
 	header http.Header
 }
 
-// fakeGateway stands in for the control plane: it serves the tunnel endpoint,
-// upgrades to WebSocket and runs the yamux CLIENT side (the gateway opens
-// streams; the runner only ever accepts them).
+// fakeGateway stands in for the control plane's runner mailbox.
 type fakeGateway struct {
 	srv *httptest.Server
 
-	// reject decides what happens to the nth dial, counting from 1: a non-zero
-	// HTTP status refuses it, zero upgrades it. A nil reject upgrades
+	// reject decides what happens to the nth hello, counting from 1: a
+	// non-zero HTTP status refuses it, zero accepts it. A nil reject accepts
 	// everything. It runs on the server goroutine, so a reject that sleeps
-	// stalls that dial — which is how a slow refusal is simulated.
+	// stalls that hello — which is how a slow refusal is simulated.
 	reject func(attempt int) int
 
 	mu       sync.Mutex
 	attempts []dialAttempt
+	current  *fakeSession
+	pending  []*fakeCall
+	calls    map[string]*fakeCall
+	nextID   int
+	// wake is what the cloud's signal does in production: the desktop app
+	// hands the runner a wake line. Tests point it at their state's wake.
+	wake func()
 
-	sessions chan *yamux.Session
-	done     chan struct{}
+	sessions chan *fakeSession
 }
+
+// fakeSession is one hello's worth of the runner being reachable. Close is
+// the cloud forgetting it: every call it carried ends, and the runner's next
+// post is refused until it says hello again.
+type fakeSession struct {
+	gw     *fakeGateway
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (s *fakeSession) Close() error {
+	s.once.Do(func() {
+		close(s.closed)
+		g := s.gw
+		g.mu.Lock()
+		for id, c := range g.calls {
+			c.fail(errors.New("session closed"))
+			delete(g.calls, id)
+		}
+		g.pending = nil
+		wake := g.wake
+		g.mu.Unlock()
+		if wake != nil {
+			wake()
+		}
+	})
+	return nil
+}
+
+type fakeCall struct {
+	wire    mailboxCall
+	session *fakeSession
+	head    chan *http.Response
+	pr      *io.PipeReader
+	pw      *io.PipeWriter
+	mu      sync.Mutex
+	nextSeq int
+	gotHead bool
+}
+
+func (c *fakeCall) fail(err error) { c.pw.CloseWithError(err) }
 
 func newFakeGateway(t *testing.T, reject func(attempt int) int) *fakeGateway {
 	t.Helper()
 	g := &fakeGateway{
 		reject:   reject,
-		sessions: make(chan *yamux.Session, 8),
-		done:     make(chan struct{}),
+		calls:    map[string]*fakeCall{},
+		sessions: make(chan *fakeSession, 8),
 	}
 	g.srv = httptest.NewServer(http.HandlerFunc(g.serve))
-	t.Cleanup(func() {
-		close(g.done)
-		g.srv.Close()
-	})
+	t.Cleanup(g.srv.Close)
 	return g
 }
 
+func (g *fakeGateway) setWake(f func()) {
+	g.mu.Lock()
+	g.wake = f
+	g.mu.Unlock()
+}
+
 func (g *fakeGateway) serve(w http.ResponseWriter, r *http.Request) {
+	rest, ok := strings.CutPrefix(r.URL.Path, runnerPath)
+	if !ok || r.Method != http.MethodPost {
+		http.Error(w, "no such endpoint", http.StatusNotFound)
+		return
+	}
+	if rest == mailboxHelloPath {
+		g.hello(w, r)
+		return
+	}
+	if r.Header.Get("Authorization") != "Bearer "+testToken {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	g.mu.Lock()
+	sess := g.current
+	g.mu.Unlock()
+	if sess == nil || isClosed(sess) {
+		http.Error(w, "say hello first", http.StatusServiceUnavailable)
+		return
+	}
+	call, ok := strings.CutPrefix(rest, mailboxCallsPath)
+	if !ok {
+		http.Error(w, "no such endpoint", http.StatusNotFound)
+		return
+	}
+	if call == "claim" {
+		g.mu.Lock()
+		out := []mailboxCall{}
+		for _, c := range g.pending {
+			out = append(out, c.wire)
+		}
+		g.pending = nil
+		g.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"calls": out})
+		return
+	}
+	id, verb, _ := strings.Cut(call, "/")
+	g.mu.Lock()
+	c := g.calls[id]
+	g.mu.Unlock()
+	if c == nil {
+		http.Error(w, "gone", http.StatusGone)
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	switch verb {
+	case "head":
+		var h struct {
+			Status int         `json:"status"`
+			Header http.Header `json:"header"`
+		}
+		_ = json.Unmarshal(body, &h)
+		c.mu.Lock()
+		first := !c.gotHead
+		c.gotHead = true
+		c.mu.Unlock()
+		if first {
+			c.head <- &http.Response{StatusCode: h.Status, Header: h.Header, Body: c.pr}
+		}
+	case "body":
+		seq, _ := strconv.Atoi(r.URL.Query().Get("seq"))
+		c.mu.Lock()
+		if seq < c.nextSeq {
+			c.mu.Unlock()
+			break
+		}
+		if seq != c.nextSeq || !c.gotHead {
+			c.mu.Unlock()
+			http.Error(w, "out of order", http.StatusConflict)
+			return
+		}
+		c.nextSeq++
+		c.mu.Unlock()
+		if _, err := c.pw.Write(body); err != nil {
+			g.drop(id)
+			http.Error(w, "gone", http.StatusGone)
+			return
+		}
+	case "end":
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(body, &e)
+		if e.Error != "" {
+			c.pw.CloseWithError(errors.New(e.Error))
+		} else {
+			_ = c.pw.Close()
+		}
+		g.drop(id)
+	default:
+		http.Error(w, "no such endpoint", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (g *fakeGateway) drop(id string) {
+	g.mu.Lock()
+	delete(g.calls, id)
+	g.mu.Unlock()
+}
+
+func isClosed(s *fakeSession) bool {
+	select {
+	case <-s.closed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (g *fakeGateway) hello(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	g.attempts = append(g.attempts, dialAttempt{
 		at:     time.Now(),
@@ -91,39 +246,70 @@ func (g *fakeGateway) serve(w http.ResponseWriter, r *http.Request) {
 	})
 	n := len(g.attempts)
 	g.mu.Unlock()
-
-	if r.URL.Path != tunnelPath {
-		http.Error(w, "no such endpoint", http.StatusNotFound)
-		return
-	}
 	if g.reject != nil {
 		if code := g.reject(n); code != 0 {
 			http.Error(w, http.StatusText(code), code)
 			return
 		}
 	}
-
-	ws, err := websocket.Accept(w, r, nil)
-	if err != nil {
+	if r.Header.Get("Authorization") != "Bearer "+testToken {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	ws.SetReadLimit(-1)
-	session, err := yamux.Client(websocket.NetConn(context.Background(), ws, websocket.MessageBinary), quietYamux())
-	if err != nil {
-		ws.Close(websocket.StatusInternalError, "yamux client failed")
-		return
-	}
+	sess := &fakeSession{gw: g, closed: make(chan struct{})}
+	g.mu.Lock()
+	g.current = sess
+	g.mu.Unlock()
 	select {
-	case g.sessions <- session:
+	case g.sessions <- sess:
 	default:
 	}
-	// Hold the hijacked connection open until the session ends or the test
-	// does; returning here would leave nobody to close it.
-	select {
-	case <-session.CloseChan():
-	case <-g.done:
+	_ = json.NewEncoder(w).Encode(map[string]any{"hello_interval_seconds": 3600})
+}
+
+// RoundTrip is the control plane's side of a forward: park the call, wake the
+// runner, and answer with the head it posts and a body fed by its chunks.
+func (s *fakeSession) RoundTrip(req *http.Request) (*http.Response, error) {
+	g := s.gw
+	var body []byte
+	if req.Body != nil {
+		body, _ = io.ReadAll(req.Body)
+		_ = req.Body.Close()
 	}
-	_ = session.Close()
+	pr, pw := io.Pipe()
+	g.mu.Lock()
+	if isClosed(s) {
+		g.mu.Unlock()
+		return nil, errors.New("session closed")
+	}
+	g.nextID++
+	id := fmt.Sprintf("call-%d", g.nextID)
+	c := &fakeCall{
+		wire: mailboxCall{ID: id, Method: req.Method, Path: req.URL.Path, Query: req.URL.RawQuery,
+			Header: req.Header.Clone(), Body: body},
+		session: s, head: make(chan *http.Response, 1), pr: pr, pw: pw,
+	}
+	g.calls[id] = c
+	g.pending = append(g.pending, c)
+	wake := g.wake
+	g.mu.Unlock()
+	if wake != nil {
+		wake()
+	}
+	select {
+	case resp := <-c.head:
+		resp.Request = req
+		context.AfterFunc(req.Context(), func() {
+			pr.CloseWithError(context.Canceled)
+			g.drop(id)
+		})
+		return resp, nil
+	case <-s.closed:
+		return nil, errors.New("session closed")
+	case <-req.Context().Done():
+		g.drop(id)
+		return nil, req.Context().Err()
+	}
 }
 
 func (g *fakeGateway) baseURL() string { return g.srv.URL }
@@ -140,7 +326,7 @@ func (g *fakeGateway) dials() int {
 	return len(g.attempts)
 }
 
-// awaitDials blocks until the endpoint has seen at least n dials.
+// awaitDials blocks until the mailbox has seen at least n hellos.
 func (g *fakeGateway) awaitDials(t *testing.T, n int, within time.Duration) []dialAttempt {
 	t.Helper()
 	deadline := time.Now().Add(within)
@@ -149,28 +335,22 @@ func (g *fakeGateway) awaitDials(t *testing.T, n int, within time.Duration) []di
 			return got
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the control plane saw %d dials in %s, want at least %d", g.dials(), within, n)
+			t.Fatalf("the control plane saw %d hellos in %s, want at least %d", g.dials(), within, n)
 		}
 		time.Sleep(time.Millisecond)
 	}
 }
 
-// awaitSession blocks until the runner has attached a tunnel.
-func (g *fakeGateway) awaitSession(t *testing.T, within time.Duration) *yamux.Session {
+// awaitSession blocks until the runner has said hello.
+func (g *fakeGateway) awaitSession(t *testing.T, within time.Duration) *fakeSession {
 	t.Helper()
 	select {
 	case s := <-g.sessions:
 		return s
 	case <-time.After(within):
-		t.Fatalf("no tunnel attached within %s (%d dials reached the control plane)", within, g.dials())
+		t.Fatalf("no hello within %s (%d reached the control plane)", within, g.dials())
 		return nil
 	}
-}
-
-func quietYamux() *yamux.Config {
-	c := yamux.DefaultConfig()
-	c.LogOutput = io.Discard
-	return c
 }
 
 // ---------------------------------------------------------------------------
@@ -239,20 +419,10 @@ func testConfig(t *testing.T, baseURL string) config {
 	return cfg
 }
 
-// tunnelClient is how the control plane actually reaches this Mac: an
-// http.Transport whose only job is to open a yamux stream instead of dialling a
-// socket. That is precisely what `httputil.ReverseProxy` sits on at the other
-// end, so these tests exercise the real framing rather than a convention two
-// files agreed on.
-//
-// The host in the URL is a placeholder — nothing resolves it, because
-// DialContext never looks at it — but HTTP requires one.
-func tunnelClient(session *yamux.Session) *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) { return session.Open() },
-		},
-	}
+// tunnelClient is how the control plane reaches this computer: the
+// mailbox's own RoundTripper, the one httputil.ReverseProxy sits on.
+func tunnelClient(session *fakeSession) *http.Client {
+	return &http.Client{Transport: session}
 }
 
 // tunnelCall makes one request over the tunnel and reads the whole answer.
@@ -293,6 +463,7 @@ func TestConnectAndServeAnswersHTTPFromTheControlPlane(t *testing.T) {
 	gw := newFakeGateway(t, nil)
 	cfg := testConfig(t, gw.baseURL())
 	st := newState()
+	gw.setWake(st.wake)
 	st.setPreflight(json.RawMessage(`{"ready":true,"items":[{"id":"claude","status":"ok"}]}`))
 	logs := captureLogs(t)
 
@@ -359,8 +530,8 @@ func TestConnectAndServeAnswersHTTPFromTheControlPlane(t *testing.T) {
 	}
 	// The rewrite, observed from the far end: the fixed tunnel path, and none
 	// of the query the base URL carried.
-	if dials[0].path != tunnelPath {
-		t.Fatalf("runner dialed %q, want %q", dials[0].path, tunnelPath)
+	if want := runnerPath + mailboxHelloPath; dials[0].path != want {
+		t.Fatalf("runner said hello at %q, want %q", dials[0].path, want)
 	}
 	if dials[0].query != "" {
 		t.Fatalf("runner dialed with query %q, want it discarded", dials[0].query)
@@ -371,13 +542,6 @@ func TestConnectAndServeAnswersHTTPFromTheControlPlane(t *testing.T) {
 	if got, want := dials[0].header.Get("X-Runner-Tenant"), cfg.tenantID; got != want {
 		t.Fatalf("X-Runner-Tenant = %q, want %q", got, want)
 	}
-	// The member, alongside the tenant: a tenant may have several paired Macs
-	// and the control plane routes a run to the one belonging to the member the
-	// task is assigned to.
-	if got, want := dials[0].header.Get("X-Runner-Member"), cfg.memberUID; got != want {
-		t.Fatalf("X-Runner-Member = %q, want %q", got, want)
-	}
-
 	out := logs.String()
 	if strings.Contains(out, testToken) {
 		t.Fatalf("the runner token reached the log output:\n%s", out)
@@ -418,6 +582,7 @@ func TestConnectAndServeBoundsConcurrentSessions(t *testing.T) {
 	gw := newFakeGateway(t, nil)
 	cfg := testConfig(t, gw.baseURL())
 	st := newState()
+	gw.setWake(st.wake)
 	t.Cleanup(st.runs.close)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -606,7 +771,9 @@ func TestRunResetsBackoffAfterAStableSession(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() { done <- run(ctx, cfg, newState(), fastTimings(floor, stable)) }()
+	st := newState()
+	gw.setWake(st.wake)
+	go func() { done <- run(ctx, cfg, st, fastTimings(floor, stable)) }()
 
 	session := gw.awaitSession(t, 20*time.Second)
 	time.Sleep(hold) // stay up well past the stability threshold
@@ -703,7 +870,7 @@ func TestRunShutsDownCleanlyOnContextCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, newState(), fastTimings(10*time.Millisecond, time.Hour)) }()
 
-	session := gw.awaitSession(t, 10*time.Second)
+	gw.awaitSession(t, 10*time.Second)
 	awaitLog(t, logs, "tunnel attached", 10*time.Second)
 	cancel()
 
@@ -714,11 +881,6 @@ func TestRunShutsDownCleanlyOnContextCancel(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("run did not return after its context was cancelled")
-	}
-	select {
-	case <-session.CloseChan():
-	case <-time.After(10 * time.Second):
-		t.Fatal("the control plane's side of the session was never closed — a cancelled runner must hang up, not abandon the tunnel")
 	}
 
 	if n := gw.dials(); n != 1 {
@@ -736,8 +898,7 @@ func TestRunShutsDownCleanlyOnContextCancel(t *testing.T) {
 }
 
 // Quitting the app is the most ordinary thing a user does with this daemon,
-// and it used to leave an "[ERR] yamux: Failed to read header …" in the log
-// tail every time. A log that cries wolf on every clean quit is a log people
+// and it once left an error in the log tail every time. A log that cries wolf on every clean quit is a log people
 // learn to skip, and it is the one they will be reading when something is
 // actually wrong.
 func TestCleanShutdownLogsNothingAtErrorLevel(t *testing.T) {
@@ -751,7 +912,7 @@ func TestCleanShutdownLogsNothingAtErrorLevel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, cfg, newState(), fastTimings(10*time.Millisecond, time.Hour)) }()
 
-	session := gw.awaitSession(t, 10*time.Second)
+	gw.awaitSession(t, 10*time.Second)
 	awaitLog(t, logs, "tunnel attached", 10*time.Second)
 	cancel()
 
@@ -763,17 +924,9 @@ func TestCleanShutdownLogsNothingAtErrorLevel(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("run did not return after its context was cancelled")
 	}
-	select {
-	case <-session.CloseChan():
-	case <-time.After(10 * time.Second):
-		t.Fatal("the control plane's side of the session was never closed")
-	}
-	// yamux complains from its own goroutines, a moment behind the shutdown
-	// that provoked it.
-	time.Sleep(100 * time.Millisecond)
 
 	// logRecords fails on any line that is not JSON: after the shutdown, every
-	// line in this log is still a record, yamux's included.
+	// line in this log is still a record.
 	for _, rec := range logRecords(t, logs.String()) {
 		switch rec["level"] {
 		case "warn", "error", "fatal", "panic":
@@ -781,9 +934,7 @@ func TestCleanShutdownLogsNothingAtErrorLevel(t *testing.T) {
 				rec["level"], rec["message"], logs.String())
 		}
 	}
-	// Nothing in this whole run may have written raw text to stderr — yamux's
-	// default logger is the only thing here that ever did, and it no longer
-	// has that output.
+	// Nothing in this whole run may have written raw text to stderr.
 	if raw := strings.TrimSpace(testStderr.String()); raw != "" {
 		t.Fatalf("raw text reached stderr; the supervisor can only pass it through unparsed into the log tail:\n%s", raw)
 	}

@@ -328,9 +328,9 @@ are separate declarations and must be changed together.
 
 ```ts
 window.__tasktrooperDesktop = {
-  info(), apiBase?, apiToken?, bridgeVersion: 7, mode: "local" | "account",
+  info(), apiBase?, apiToken?, bridgeVersion: 10, mode: "local" | "account",
   account: { signIn(origin?), signOut(), state(), openKeys(prefill?), mcp: { list(), set(server), remove(name) } },
-  runner: { snapshot, subscribe, connect, ..., pair, unpair, pairing, restart },
+  runner: { snapshot, subscribe, connect, ..., pair, unpair, pairing, restart, wake },
   updates: { status, subscribe, check, restart },
   analytics: { get(), set(on), track({name, params}), identify(userId) },
   toolchain: { report(force?), plan(ids), state(), subscribe, install(ids), cancel(), dismiss(), openPage(id) }
@@ -347,7 +347,11 @@ the page half's `{mode, origin?, temporaryLocal?}`. `bridgeVersion` 2 added
 `account.openKeys()` and `temporaryLocal`, 3 `openKeys(prefill)`, 4 `analytics`,
 5 `toolchain` (required here, optional `toolchain?` on the page's half), 6
 `account.mcp` and `openKeys({mcp})` (optional `mcp?` on the page's half), 7
-`analytics.track()`/`identify()` (optional on the page's half).
+`analytics.track()`/`identify()` (optional on the page's half), 10
+`runner.wake()` (optional `wake?` on the page's half): the account's page
+relays the cloud's wake signal (its own `runner_wakes/{uid}` Firestore
+document) and the runner claims the calls waiting for this computer; it
+carries nothing and is ignored outside account mode.
 `ToolchainId` is the twenty-seven ids in `TOOLCHAIN_IDS`, in the same order on
 both halves.
 

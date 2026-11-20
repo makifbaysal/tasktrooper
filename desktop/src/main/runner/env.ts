@@ -227,6 +227,10 @@ export function preflightMessage(report: PreflightReport): string {
  * The embedder's new address, as one control line: it binds an OS-assigned
  * port, so a restart moves it under a runner that is already attached.
  */
+export function wakeMessage(): string {
+  return `${JSON.stringify({ type: "wake" })}\n`;
+}
+
 export function embeddingsMessage(url: string): string {
   return `${JSON.stringify({ type: "embeddings-base-url", embeddings_base_url: url })}\n`;
 }

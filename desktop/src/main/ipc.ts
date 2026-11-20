@@ -180,6 +180,7 @@ export interface IpcServices {
   unpair(): Promise<HostRunnerSnapshot>;
   pairingInfo(): RunnerPairingSummary | null;
   restartRunner(): Promise<HostRunnerSnapshot>;
+  wakeRunner(): void;
 
   getSettings(): HostSettings;
   setPreferences(patch: HostPreferences): Promise<HostSettings>;
@@ -426,6 +427,9 @@ export function registerIpc(services: IpcServices, guard: SenderGuard): void {
   cloud(CLOUD_CHANNELS.runnerUnpair, () => services.unpair());
   cloud(CLOUD_CHANNELS.runnerPairingInfo, () => services.pairingInfo());
   cloud(CLOUD_CHANNELS.runnerRestart, () => services.restartRunner());
+  cloud(CLOUD_CHANNELS.runnerWake, () => {
+    services.wakeRunner();
+  });
 
   cloud(CLOUD_CHANNELS.settingsGet, () => services.getSettings());
   cloud(CLOUD_CHANNELS.settingsSetPreferences, (payload) => services.setPreferences(validatePreferences(payload)));

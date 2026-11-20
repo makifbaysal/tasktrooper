@@ -760,6 +760,9 @@ const services: IpcServices = {
   unpair: async () => hostSnapshot(await runnerSupervisor.unpair()),
   pairingInfo: (): RunnerPairingSummary | null => runnerSupervisor.pairingInfo(),
   restartRunner: async () => hostSnapshot(await runnerSupervisor.restart()),
+  wakeRunner: () => {
+    if (accountMode()) runnerSupervisor.wake();
+  },
 
   getSettings: (): HostSettings => {
     const { workspaceDir, launchAtLogin, autoConnect, notifications: prefs } = settingsStore.get();

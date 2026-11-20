@@ -2482,11 +2482,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					if err != nil {
 						return fmt.Errorf("storeops: push secret: resolving github token: %w", err)
 					}
-					info, err := gitClient.TaskGitInfo(ctx, repo.RootPath)
+					ghOwner, ghRepo, err := repoCoordinates(ctx, gitClient, repo)
 					if err != nil {
 						return fmt.Errorf("storeops: push secret: resolving repository git info: %w", err)
 					}
-					return githubapi.PutRepoSecret(ctx, token, info.Owner, info.Repo, name, value)
+					return githubapi.PutRepoSecret(ctx, token, ghOwner, ghRepo, name, value)
 				},
 				Repos:    repositoryStore,
 				Tasks:    repositorySvc,
@@ -2513,11 +2513,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					if err != nil {
 						return fmt.Errorf("storeops: resolving github token: %w", err)
 					}
-					info, err := gitClient.TaskGitInfo(ctx, repo.RootPath)
+					ghOwner, ghRepo, err := repoCoordinates(ctx, gitClient, repo)
 					if err != nil {
 						return fmt.Errorf("storeops: resolving repository git info: %w", err)
 					}
-					jobs, err := githubapi.ParseWorkflowJobs(ctx, token, info.Owner, info.Repo)
+					jobs, err := githubapi.ParseWorkflowJobs(ctx, token, ghOwner, ghRepo)
 					if err != nil {
 						return err
 					}
@@ -2621,11 +2621,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					if err != nil {
 						return "", err
 					}
-					info, err := gitClient.TaskGitInfo(ctx, repo.RootPath)
+					ghOwner, ghRepo, err := repoCoordinates(ctx, gitClient, repo)
 					if err != nil {
 						return "", err
 					}
-					return githubapi.NewPRAPI().BranchHeadSHA(ctx, token, info.Owner, info.Repo, branch)
+					return githubapi.NewPRAPI().BranchHeadSHA(ctx, token, ghOwner, ghRepo, branch)
 				}
 			}
 			testBuildDeps := storeops.TestBuildDeps{
@@ -2647,13 +2647,13 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					if err != nil {
 						return "", "", "", "", fmt.Errorf("resolving github token: %w", err)
 					}
-					info, err := gitClient.TaskGitInfo(ctx, repo.RootPath)
+					ghOwner, ghRepo, err := repoCoordinates(ctx, gitClient, repo)
 					if err != nil {
 						return "", "", "", "", fmt.Errorf("resolving repository git info: %w", err)
 					}
 					// "" makes the builder ask GitHub: the root checkout's current
 					// branch is not necessarily the default one.
-					return token, info.Owner, info.Repo, "", nil
+					return token, ghOwner, ghRepo, "", nil
 				})
 			}
 			storeOpsSvc.SetTestBuilds(testBuildDeps)
@@ -2701,11 +2701,11 @@ func (e *engine) buildHandler(ctx context.Context, opts Options) *httpadapter.Ha
 					if gitClient == nil {
 						return "", "", fmt.Errorf("deployops: git client not configured")
 					}
-					info, err := gitClient.TaskGitInfo(ctx, repo.RootPath)
+					ghOwner, ghRepo, err := repoCoordinates(ctx, gitClient, repo)
 					if err != nil {
 						return "", "", fmt.Errorf("deployops: resolving repository git info: %w", err)
 					}
-					return info.Owner, info.Repo, nil
+					return ghOwner, ghRepo, nil
 				}
 				deployOpsSvc.SetRepoResolver(resolveRepoCoordinates)
 				e.deployOpsSvc = deployOpsSvc

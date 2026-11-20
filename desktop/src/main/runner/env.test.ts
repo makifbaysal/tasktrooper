@@ -5,7 +5,7 @@ vi.mock("electron", () => ({
   app: { getAppPath: () => "/app", getPath: () => "/userData", isPackaged: false },
 }));
 
-const { childEnv, embeddingsMessage, preflightMessage, runnerConfig } = await import("./env.js");
+const { childEnv, embeddingsMessage, preflightMessage, runnerConfig, wakeMessage } = await import("./env.js");
 
 const bundle: RunnerPairingBundle = {
   runner_token: "rtok-1",
@@ -136,6 +136,12 @@ describe("runnerConfig", () => {
     const line = embeddingsMessage("http://127.0.0.1:6001");
     expect(line.endsWith("\n")).toBe(true);
     expect(JSON.parse(line)).toEqual({ type: "embeddings-base-url", embeddings_base_url: "http://127.0.0.1:6001" });
+  });
+
+  it("wakes the runner with one control line that carries nothing", () => {
+    const line = wakeMessage();
+    expect(line.endsWith("\n")).toBe(true);
+    expect(JSON.parse(line)).toEqual({ type: "wake" });
   });
 
   it("sends the executor and its data directory only when this build has one", () => {

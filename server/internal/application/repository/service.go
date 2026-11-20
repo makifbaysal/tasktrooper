@@ -100,6 +100,10 @@ type Service struct {
 	workspaceRoot    string
 	gitWarnMu        sync.Mutex
 	gitWarnings      map[uuid.UUID]string
+	// noServerCheckout: this server keeps no working copy of its own. A
+	// repository is recorded by its remote and lives on members' computers;
+	// nothing here clones, inits or restores it (the shared cloud pod).
+	noServerCheckout bool
 
 	restoreMu sync.Mutex
 	restores  map[uuid.UUID]*domain.RepositoryRestore
@@ -179,6 +183,12 @@ func NewService(
 		syncCheckedAt: make(map[uuid.UUID]time.Time),
 		syncFailures:  make(map[uuid.UUID]int),
 	}
+}
+
+// SetNoServerCheckout switches the service to record repositories by remote
+// only: no clone, git init, restore or presence warning on this server.
+func (s *Service) SetNoServerCheckout() {
+	s.noServerCheckout = true
 }
 
 func (s *Service) SetScorer(st *board.ScoreTracker) {
@@ -709,7 +719,9 @@ func (s *Service) Open(ctx context.Context, req domain.OpenRepositoryRequest) (d
 			}
 			existing.ProjectIDs = req.ProjectIDs
 		}
-		s.ensureGitAsync(ctx, existing.ID, absRoot, name)
+		if !s.noServerCheckout {
+			s.ensureGitAsync(ctx, existing.ID, absRoot, name)
+		}
 		existing = s.syncRemoteURL(ctx, existing, req.CloneURL)
 		s.startIndex(ctx, existing.ID, absRoot)
 		if s.modelRefresher != nil {
@@ -721,11 +733,13 @@ func (s *Service) Open(ctx context.Context, req domain.OpenRepositoryRequest) (d
 }
 
 func (s *Service) registerNew(ctx context.Context, absRoot, name string, req domain.OpenRepositoryRequest, scan bool) (domain.Repository, error) {
-	if err := s.ensureGitSync(ctx, absRoot, name, req.Owner); err != nil {
-		return domain.Repository{}, fmt.Errorf("git/GitHub setup failed: %w", err)
+	if !s.noServerCheckout {
+		if err := s.ensureGitSync(ctx, absRoot, name, req.Owner); err != nil {
+			return domain.Repository{}, fmt.Errorf("git/GitHub setup failed: %w", err)
+		}
 	}
 	remoteURL := strings.TrimSpace(req.CloneURL)
-	if remoteURL == "" && s.git != nil {
+	if remoteURL == "" && s.git != nil && !s.noServerCheckout {
 		remoteURL = s.git.OriginURL(ctx, absRoot)
 	}
 
@@ -774,6 +788,21 @@ func (s *Service) ImportFromGitHub(ctx context.Context, req domain.ImportGitHubR
 	dest, err := s.workspaceRepoPath(name)
 	if err != nil {
 		return domain.Repository{}, err
+	}
+	if s.noServerCheckout {
+		// The row needs a root to key on; an empty folder is that root. The
+		// code itself is cloned onto members' computers.
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return domain.Repository{}, fmt.Errorf("creating repository root: %w", err)
+		}
+		return s.Open(ctx, domain.OpenRepositoryRequest{
+			RootPath:    dest,
+			Description: strings.TrimSpace(req.Description),
+			ProjectIDs:  req.ProjectIDs,
+			Owner:       owner,
+			CloneURL:    cloneURL,
+			Kind:        strings.TrimSpace(req.Kind),
+		})
 	}
 	if s.checkoutIsOtherRepo(ctx, dest, cloneURL) {
 		if dest, err = s.workspaceRepoPath(name + "-" + owner); err != nil {
@@ -867,7 +896,7 @@ func (s *Service) withGitWarning(repo domain.Repository) domain.Repository {
 	warning := s.gitWarnings[repo.ID]
 	s.gitWarnMu.Unlock()
 
-	if s.git != nil {
+	if s.git != nil && !s.noServerCheckout {
 		presence := s.git.Presence(repo.RootPath)
 		if w := presence.Warning(); w != "" {
 			repo.GitWarning = w
