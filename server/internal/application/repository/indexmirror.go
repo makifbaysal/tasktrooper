@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Service) EnsureIndexMirror(ctx context.Context, repositoryID uuid.UUID, rootPath string) error {
-	if s == nil {
+	if s == nil || s.noServerCheckout {
 		return nil
 	}
 	if s.git == nil {

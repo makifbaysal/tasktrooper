@@ -24,6 +24,9 @@ func (s *Service) RestoreWorkingCopy(ctx context.Context, repositoryID uuid.UUID
 	if s.git == nil {
 		return domain.Repository{}, fmt.Errorf("git client is not configured")
 	}
+	if s.noServerCheckout {
+		return domain.Repository{}, fmt.Errorf("this server keeps no copy of the code; it lives on members' computers")
+	}
 
 	if s.IsRestoreRunning(repositoryID) {
 		return s.withGitWarning(repo), nil
