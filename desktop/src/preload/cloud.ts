@@ -140,6 +140,7 @@ const runner: DesktopRunnerHost = {
   unpair: () => call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerUnpair),
   pairing: () => call<RunnerPairingSummary | null>(CLOUD_CHANNELS.runnerPairingInfo),
   restart: () => call<HostRunnerSnapshot>(CLOUD_CHANNELS.runnerRestart),
+  wake: () => call<void>(CLOUD_CHANNELS.runnerWake),
 
   logs: (req?: HostLogsRequest) => call<LogLine[]>(CLOUD_CHANNELS.runnerLogs, req ?? {}),
   subscribeLogs,
@@ -262,7 +263,7 @@ const mode = syncString(CLOUD_CHANNELS.accountMode) === "account" ? "account" : 
 const host: DesktopHost = {
   ...(apiBase !== undefined ? { apiBase } : {}),
   ...(apiToken !== undefined ? { apiToken } : {}),
-  bridgeVersion: 9,
+  bridgeVersion: 10,
   mode,
   info: () => call<{ app: string; version: string; platform: string }>(CLOUD_CHANNELS.hostInfo),
   account,

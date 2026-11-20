@@ -18,7 +18,7 @@ import { usableProviderIds, type ProviderStore } from "../config/providers.js";
 import { accountPreflight, emptyReport, executorDataDir, firstBlocker, itemById, postgresCacheDir, runnerDataDir } from "../services/detect.js";
 import { LogStore } from "../supervisor/log-buffer.js";
 import { RunnerChild } from "./child.js";
-import { childEnv, embeddingsMessage, preflightMessage, runnerConfig } from "./env.js";
+import { childEnv, embeddingsMessage, preflightMessage, runnerConfig, wakeMessage } from "./env.js";
 import { isAuthRejection, parseRunnerLine } from "./runner-log.js";
 import type { ToolchainRuntime } from "../toolchain/runtime-env.js";
 
@@ -157,6 +157,11 @@ export class RunnerSupervisor extends EventEmitter<RunnerSupervisorEvents> {
    */
   setEmbeddingsBaseURL(url: string): void {
     this.#child.send(embeddingsMessage(url));
+  }
+
+  /** Calls wait in the cloud for this computer: the runner claims them now. */
+  wake(): void {
+    this.#child.send(wakeMessage());
   }
 
   /** The account preflight, told which providers hold a key — by id, never the key. */

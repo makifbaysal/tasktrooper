@@ -180,6 +180,11 @@ export interface DesktopRunnerHost {
   pairing(): Promise<RunnerPairingSummary | null>;
   /** Restart the runner — account mode's `restartChild`, one child, no id. */
   restart(): Promise<HostRunnerSnapshot>;
+  /**
+   * The cloud signalled that calls wait for this computer: the runner claims
+   * them now. Account mode only; a runner that is not running ignores it.
+   */
+  wake(): Promise<void>;
 
   logs(req?: HostLogsRequest): Promise<LogLine[]>;
   subscribeLogs(cb: (lines: LogLine[]) => void): () => void;
@@ -418,8 +423,9 @@ export interface DesktopHost {
    * 7: `analytics.track(event)` / `analytics.identify(userId)`.
    * 8: `remoteAccess` — the tunnel for the phone app (local mode only).
    * 9: `voice` — talking to an agent: speech to text and text to speech.
+   * 10: `runner.wake()` — the page relays the cloud's wake signal.
    */
-  bridgeVersion: 9;
+  bridgeVersion: 10;
   /** Which world this page is in, read synchronously before the first render. */
   mode: AccountMode;
   account: DesktopAccountHost;
