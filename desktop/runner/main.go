@@ -54,27 +54,22 @@ import (
 	"fmt"
 	"io"
 	stdlog "log"
-	"net"
-	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/coder/websocket"
-	"github.com/hashicorp/yamux"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
-// tunnelPath is fixed, not configuration: it is the one endpoint the control
-// plane exposes for runners, and TMBaseURL only ever names the host.
-const tunnelPath = "/internal/runner/tunnel"
+// runnerPath is fixed, not configuration: it is where the control plane
+// keeps this computer's mailbox, and TMBaseURL only ever names the host.
+const runnerPath = "/internal/runner/"
 
 // minBackoff is both the starting delay after the first failed attempt and
 // the value reconnects fall back to once a session has proven itself stable.
@@ -215,7 +210,7 @@ type wireConfig struct {
 
 // config is the validated form of wireConfig.
 type config struct {
-	tunnelURL         string
+	runnerURL         string
 	runnerToken       string
 	tenantID          string
 	memberUID         string
@@ -287,7 +282,7 @@ func loadConfig(line []byte) (config, error) {
 	if base == "" {
 		return config{}, errors.New("tm_base_url is required (e.g. https://tasktrooper.ai)")
 	}
-	tunnelURL, err := toTunnelURL(base)
+	runnerURL, err := toRunnerURL(base)
 	if err != nil {
 		return config{}, fmt.Errorf("tm_base_url: %w", err)
 	}
@@ -453,7 +448,7 @@ func loadConfig(line []byte) (config, error) {
 	}
 
 	return config{
-		tunnelURL:                tunnelURL,
+		runnerURL:                runnerURL,
 		runnerToken:              wire.RunnerToken,
 		tenantID:                 tenant,
 		memberUID:                member,
@@ -520,28 +515,22 @@ func checkLoopbackURL(raw string) error {
 	return nil
 }
 
-// toTunnelURL turns the base URL into the WebSocket URL this runner dials:
-// http(s) becomes ws(s), and the fixed tunnel path replaces whatever path (if
-// any) the base URL had.
-func toTunnelURL(base string) (string, error) {
+// toRunnerURL turns the base URL into the mailbox URL this runner posts to:
+// the fixed runner path replaces whatever path (if any) the base URL had.
+func toRunnerURL(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
 		return "", fmt.Errorf("not a valid URL: %w", err)
 	}
 	switch u.Scheme {
-	case "http":
-		u.Scheme = "ws"
-	case "https":
-		u.Scheme = "wss"
-	case "ws", "wss":
-		// Already a websocket URL; leave it alone.
+	case "http", "https":
 	default:
 		return "", fmt.Errorf("unsupported scheme %q (want http:// or https://)", u.Scheme)
 	}
 	if u.Host == "" {
 		return "", fmt.Errorf("missing host in %q", base)
 	}
-	u.Path = tunnelPath
+	u.Path = runnerPath
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u.String(), nil
@@ -737,6 +726,8 @@ func readControl(ctx context.Context, r *bufio.Reader, state *state) {
 				ex.setEmbeddingsBaseURL(trimmed)
 			}
 			log.Debug().Str("url", trimmed).Msg("embeddings base url updated")
+		case "wake":
+			state.wake()
 		default:
 			log.Warn().Str("type", msg.Type).Msg("ignoring an unknown control message")
 		}
@@ -781,9 +772,23 @@ type state struct {
 	// runs are the durable runs, which outlive any one tunnel session. A
 	// fresh state keeps their buffers in memory; main gives it the disk.
 	runs *runRegistry
+	// wakeups is how the desktop app, told by the cloud's signal that calls
+	// are waiting, has this runner collect them now.
+	wakeups chan struct{}
 }
 
-func newState() *state { return &state{runs: newRunRegistry("", defaultRunBufferBytes, runRetention)} }
+func newState() *state {
+	return &state{runs: newRunRegistry("", defaultRunBufferBytes, runRetention), wakeups: make(chan struct{}, 1)}
+}
+
+func (s *state) wake() {
+	select {
+	case s.wakeups <- struct{}{}:
+	default:
+	}
+}
+
+func (s *state) wakeChan() <-chan struct{} { return s.wakeups }
 
 func (s *state) appiumHub() *appiumHub {
 	if s == nil {
@@ -845,78 +850,6 @@ func (s *state) getEmbeddingsBaseURL() string {
 func configureLogger() {
 	zerolog.TimeFieldFormat = time.RFC3339
 	log.Logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
-}
-
-// yamuxLogger is the logger yamux writes through, so the mux's own lines
-// arrive as records like every other line this program emits instead of as raw
-// text on stderr. The flags are zero deliberately: zerolog stamps each record
-// with the time, and the stdlib logger's own timestamp would be a second one
-// inside the message.
-func yamuxLogger(ctx context.Context) *stdlog.Logger {
-	return stdlog.New(yamuxLogWriter{ctx: ctx}, "", 0)
-}
-
-// yamuxLogWriter turns one line from yamux into one record from this program.
-//
-// yamux writes from its own read, write and keepalive goroutines, so this must
-// be safe for concurrent use: it keeps no mutable state, and zerolog's logger
-// is safe to share. It must also never block and never panic — a logger that
-// stalls inside the mux stalls the tunnel, and one that panics takes the
-// process down over a log line — so it does exactly one unbuffered write per
-// call, takes no lock of its own, recovers anything the sink throws, and
-// always reports a complete write so the stdlib logger never retries or
-// reports a logging failure back into yamux.
-type yamuxLogWriter struct{ ctx context.Context }
-
-func (w yamuxLogWriter) Write(p []byte) (int, error) {
-	defer func() { _ = recover() }()
-	if level, msg, ok := yamuxRecord(string(p), w.ctx.Err() != nil); ok {
-		log.WithLevel(level).Msg(msg)
-	}
-	return len(p), nil
-}
-
-// yamuxRecord maps one yamux log line onto a level and a message, and reports
-// whether there is anything to log at all.
-//
-// yamux tags its lines [ERR] and [WARN], and takes a dimmer view of a closing
-// connection than this program does. Tearing the session down IS how this
-// program shuts down — Session.Close on a cancelled context — and the mux then
-// finding the connection it was reading from gone is the expected consequence
-// of that, not a fault. Logging "[ERR] yamux: Failed to read header: failed to
-// get reader: context canceled" every time a user quits the app teaches them
-// that errors in this log mean nothing, and this is the log they will be
-// reading when something is genuinely wrong. So once shutdown has been
-// initiated, yamux's complaints are debug.
-//
-// While the session is live they are worth exactly what they say: a keepalive
-// that failed or a frame that could not be sent is the reason the tunnel is
-// about to drop, and it is the line someone will want when they ask why this
-// Mac stopped running their tasks. Those keep their level.
-//
-// An untagged line is yamux narrating itself; debug is generous enough. The
-// message keeps yamux's own "yamux: " prefix, so a record needs no field to
-// say where it came from and the supervisor needs no case for it.
-func yamuxRecord(line string, shuttingDown bool) (zerolog.Level, string, bool) {
-	msg := strings.TrimSpace(line)
-	if msg == "" {
-		return zerolog.NoLevel, "", false
-	}
-
-	level := zerolog.DebugLevel
-	switch {
-	case strings.HasPrefix(msg, "[ERR]"):
-		msg = strings.TrimSpace(strings.TrimPrefix(msg, "[ERR]"))
-		if !shuttingDown {
-			level = zerolog.ErrorLevel
-		}
-	case strings.HasPrefix(msg, "[WARN]"):
-		msg = strings.TrimSpace(strings.TrimPrefix(msg, "[WARN]"))
-		if !shuttingDown {
-			level = zerolog.WarnLevel
-		}
-	}
-	return level, msg, true
 }
 
 // authError marks a dial rejected on credentials rather than connectivity.
@@ -996,117 +929,6 @@ func (t timings) nextBackoff(cur, max time.Duration) time.Duration {
 		next = t.minBackoff
 	}
 	return next
-}
-
-// connectAndServe dials the control plane once, attaches yamux to the
-// resulting connection, and answers streams from it until the session ends.
-//
-// It returns how long the tunnel was attached — zero if it never attached, so
-// a dial that fails, however slowly, is never mistaken for a session that
-// worked.
-func connectAndServe(ctx context.Context, cfg config, state *state) (time.Duration, error) {
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+cfg.runnerToken)
-	header.Set("X-Runner-Tenant", cfg.tenantID)
-	// The member, alongside the tenant, because that is what the control plane
-	// routes on: a task's runs go to the Mac of the member it is assigned to.
-	header.Set("X-Runner-Member", cfg.memberUID)
-
-	log.Debug().Str("url", cfg.tunnelURL).Msg("dialing control plane")
-	wsConn, resp, err := websocket.Dial(ctx, cfg.tunnelURL, &websocket.DialOptions{HTTPHeader: header})
-	if err != nil {
-		if resp != nil && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
-			return 0, &authError{status: resp.StatusCode}
-		}
-		return 0, fmt.Errorf("dial: %w", err)
-	}
-
-	// yamux frames routinely exceed coder/websocket's default 32KiB
-	// per-message read limit; disabling it lets yamux's own framing, not
-	// this library's, decide message boundaries. NetConn below sets this too,
-	// but it is set explicitly here so the reason is on record.
-	wsConn.SetReadLimit(-1)
-
-	netConn := websocket.NetConn(ctx, wsConn, websocket.MessageBinary)
-
-	// Everything else about yamux stays default; only where it logs changes.
-	// Its default is raw text on stderr, which the supervisor can do nothing
-	// with but pass through verbatim into the log the user reads.
-	yamuxCfg := yamux.DefaultConfig()
-	yamuxCfg.LogOutput = nil // one of Logger and LogOutput may be set, never both
-	yamuxCfg.Logger = yamuxLogger(ctx)
-
-	session, err := yamux.Server(netConn, yamuxCfg)
-	if err != nil {
-		wsConn.Close(websocket.StatusInternalError, "yamux setup failed")
-		return 0, fmt.Errorf("yamux server: %w", err)
-	}
-
-	// Tear the session (and with it, the websocket) down the moment ctx is
-	// cancelled, whether or not a stream is currently blocked in Accept.
-	// Session.Close closes the underlying NetConn with a normal-closure
-	// frame, which is what "close cleanly" means here.
-	stopOnShutdown := context.AfterFunc(ctx, func() { _ = session.Close() })
-	defer stopOnShutdown()
-
-	// Requests belong to this session and end with it. A durable run does
-	// not: once started it is the registry's (runs.go), and only its stream
-	// to this session's caller ends here.
-	sessionCtx, endSession := context.WithCancel(ctx)
-	defer endSession()
-
-	// The control plane reaches this Mac with httputil.ReverseProxy over an
-	// http.Transport, so what arrives on a stream is genuine HTTP/1.1 framing.
-	// yamux.Session already satisfies net.Listener, which makes "serve the
-	// tunnel" exactly one http.Server whose listener is the session.
-	//
-	// Nothing about the security posture moves. This binds no socket: the
-	// listener yields streams the control plane opened over a connection THIS
-	// process dialled, and rules_test.go still forbids every net.Listen.
-	runner := newRunnerServer(cfg, state)
-	srv := &http.Server{
-		Handler:           runner.handler(),
-		ReadHeaderTimeout: requestHeaderTimeout,
-		IdleTimeout:       idleTimeout,
-		// Every request context descends from this one, so a session ending
-		// ends its requests: the queued calls, the non-durable ones, and the
-		// streams of durable runs, which go on without them.
-		BaseContext: func(net.Listener) context.Context { return sessionCtx },
-		// net/http's own complaints, routed into this program's JSON log. Its
-		// default is the stdlib logger writing raw text to stderr, which the
-		// supervisor can only pass through unparsed — the same problem
-		// yamuxLogger exists to solve.
-		ErrorLog: httpErrorLog(),
-	}
-
-	var streams atomic.Int64
-	srv.ConnState = func(_ net.Conn, cs http.ConnState) {
-		if cs == http.StateNew {
-			log.Debug().Int64("stream", streams.Add(1)).Msg("stream accepted")
-		}
-	}
-
-	log.Info().Msg("tunnel attached")
-	attachedAt := time.Now()
-	defer func() {
-		// Cancel first, then wait, then close. Cancelling gives every request
-		// still in flight — a non-durable run among them — the chance to kill
-		// its process group and be reaped; closing first would tear the
-		// connections down and leave those children behind. Durable runs are
-		// not waited for: they go on, and a later session attaches to them.
-		endSession()
-		runner.drain()
-		_ = srv.Close()
-		log.Info().Int64("streams", streams.Load()).Msg("tunnel detached")
-	}()
-
-	// Serve returns when Accept fails, which is what session.Close() on a
-	// cancelled context produces.
-	err = srv.Serve(session)
-	if ctx.Err() != nil {
-		return time.Since(attachedAt), nil
-	}
-	return time.Since(attachedAt), fmt.Errorf("serving the tunnel: %w", err)
 }
 
 // httpErrorLog routes net/http's own log lines into this program's records.

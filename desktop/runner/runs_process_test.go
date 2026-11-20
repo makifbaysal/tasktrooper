@@ -156,6 +156,7 @@ func TestATunnelDropDoesNotKillTheRun(t *testing.T) {
 	cfg := testConfig(t, gw.baseURL())
 	cfg.claudeBin = countingClaude(t, lines, "0.1")
 	st := testState(t)
+	gw.setWake(st.wake)
 	t.Cleanup(st.runs.close)
 	logs := captureLogs(t)
 
